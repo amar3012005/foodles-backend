@@ -33,6 +33,10 @@ app.get('/razorpay-key', (req, res) => {
   res.json({ key: process.env.RAZORPAY_KEY_ID });
 });
 
+app.get("/", (req, res) => {
+  res.send("Welcome to the Foodles API!");
+});
+
 const formatOrderDetails = (orderDetails, orderId) => {
   return `
     <table class="order-table">
