@@ -7,7 +7,19 @@ const crypto = require("crypto");
 const path = require("path");
 
 const app = express();
-app.use(cors());
+
+const allowedOrigins = [
+  "https://foodles.shop", // Replace with your custom domain
+];
+
+app.use(
+  cors({
+    origin: allowedOrigins,
+    methods: "GET,POST,PUT,DELETE",
+    credentials: true, // Allow cookies if needed
+  })
+);
+
 app.use(express.json());
 
 // Serve static files from the "public" directory
@@ -36,6 +48,7 @@ app.get('/razorpay-key', (req, res) => {
 app.get("/", (req, res) => {
   res.send("Welcome to the Foodles API!");
 });
+
 
 const formatOrderDetails = (orderDetails, orderId) => {
   return `
@@ -206,5 +219,5 @@ app.post('/payment/verify-payment', async (req, res) => {
   res.json({ verified: payment_verified });
 });
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
