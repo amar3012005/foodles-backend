@@ -14,11 +14,11 @@ const isDevelopment = process.env.NODE_ENV !== 'production';
 // Update CORS configuration
 app.use(cors({
   origin: isDevelopment 
-    ? ['http://localhost:3000', 'http://localhost:3001', 'http://127.0.0.1:3000']
+    ? ['http://localhost:3000', 'http://localhost:3001', 'http://127.0.0.1:3000',"https://precious-cobbler-d60f77.netlify.app"]
     : [
         'http://localhost:3000', // Allow local dev in production
         'https://foodles.shop', 
-        'https://www.foodles.shop'
+        'https://www.foodles.shop','https://precious-cobbler-d60f77.netlify.app'
       ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
