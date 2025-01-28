@@ -8,17 +8,17 @@ const path = require("path");
 
 const app = express();
 
-const allowedOrigins = [
-  "https://foodles.shop", // Replace with your custom domain
-];
+const isDevelopment = process.env.NODE_ENV !== 'production';
 
-app.use(
-  cors({
-    origin: allowedOrigins,
-    methods: "GET,POST,PUT,DELETE",
-    credentials: true, // Allow cookies if needed
-  })
-);
+// Update CORS configuration
+app.use(cors({
+  origin: isDevelopment 
+    ? ['http://localhost:3000', 'http://localhost:3001', 'http://127.0.0.1:3000']
+    : ['https://foodles.shop', 'https://www.foodles.shop'],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 
 app.use(express.json());
 
@@ -44,11 +44,6 @@ contactEmail.verify((error) => {
 app.get('/razorpay-key', (req, res) => {
   res.json({ key: process.env.RAZORPAY_KEY_ID });
 });
-
-app.get("/", (req, res) => {
-  res.send("Welcome to the Foodles API!");
-});
-
 
 const formatOrderDetails = (orderDetails, orderId) => {
   return `
@@ -96,80 +91,105 @@ const formatOrderDetails = (orderDetails, orderId) => {
       </tr>
       <tr>
         <td>${orderDetails.deliveryAddress}</td>
-        <td style="text-align: right;">#AS_${orderId}</td>
+        <td style="text-align: right;">#${orderId}</td>
       </tr>
     </table>
   `;
 };
 
+const isValidEmail = (email) => {
+  // Basic email validation
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return emailRegex.test(email);
+};
+
 const sendOrderConfirmationEmail = (name, email, orderDetails, orderId) => {
-  const formattedOrderDetails = formatOrderDetails(orderDetails, orderId);
-
-  const mail = {
-    from: process.env.EMAIL_USER,
-    to: email,
-    subject: "Order Confirmation",
-    html: `
-      <link rel="stylesheet" href="styles.css">
-      <table width="600" cellpadding="20" cellspacing="0" style="font-family: Arial, sans-serif; margin: 0 auto; border: 1px solid #ddd; border-radius: 10px; background-color: #141414; color: #f9f9f9;">
-        <tr>
-          <td>
-            <h2 class="glow" style="color: #7c3aed;">Order Confirmation</h2>
-            <p>Dear ${name},</p>
-            ${formattedOrderDetails}
-            <p>Thank you for your order. We'll keep you updated on the status.</p>
-            <p>Best regards,</p>
-            <p>Foodles Team</p>
-          </td>
-        </tr>
-      </table>
-    `,
-  };
-
-  contactEmail.sendMail(mail, (error) => {
-    if (error) {
-      console.error("Contact email error:", error);
-    } else {
-      console.log(`Email sent successfully to ${email}`);
+  return new Promise((resolve, reject) => {
+    if (!isValidEmail(email)) {
+      reject(new Error("Invalid customer email address"));
+      return;
     }
+
+    const formattedOrderDetails = formatOrderDetails(orderDetails, orderId);
+
+    const mail = {
+      from: process.env.EMAIL_USER,
+      to: email,
+      subject: "Order Confirmation",
+      html: `
+        <link rel="stylesheet" href="styles.css">
+        <table width="600" cellpadding="20" cellspacing="0" style="font-family: Arial, sans-serif; margin: 0 auto; border: 1px solid #ddd; border-radius: 10px; background-color: #141414; color: #f9f9f9;">
+          <tr>
+            <td>
+              <h2 class="glow" style="color: #7c3aed;">Order Confirmation</h2>
+              <p>Dear ${name},</p>
+              ${formattedOrderDetails}
+              <p>Thank you for your order. We'll keep you updated on the status.</p>
+              <p>Best regards,</p>
+              <p>Foodles Team</p>
+            </td>
+          </tr>
+        </table>
+      `,
+    };
+
+    contactEmail.sendMail(mail, (error, info) => {
+      if (error) {
+        console.error("Contact email error:", error);
+        reject(error);
+      } else if (info.rejected.length > 0) {
+        console.error(`Email rejected for ${email}`);
+        reject(new Error("Email delivery failed"));
+      } else {
+        console.log(`Email delivered successfully to ${email}`);
+        resolve(true);
+      }
+    });
   });
 };
 
 const sendOrderReceivedEmail = (vendorEmail, orderDetails, orderId) => {
-  if (!vendorEmail) {
-    console.error("Vendor email is not defined");
-    return;
-  }
-
-  const formattedOrderDetails = formatOrderDetails(orderDetails, orderId);
-
-  const mail = {
-    from: process.env.EMAIL_USER,
-    to: vendorEmail,
-    subject: "New Order Received",
-    html: `
-      <link rel="stylesheet" href="styles.css">
-      <table width="600" cellpadding="20" cellspacing="0" style="font-family: Arial, sans-serif; margin: 0 auto; border: 1px solid #ddd; border-radius: 10px; background-color: #141414; color: #f9f9f9;">
-        <tr>
-          <td>
-            <h2 class="glow" style="color: #7c3aed;">New Order Received</h2>
-            <p>Dear Vendor,</p>
-            ${formattedOrderDetails}
-            <p>Please prepare the order for delivery.</p>
-            <p>Best regards,</p>
-            <p>Foodles Team</p>
-          </td>
-        </tr>
-      </table>
-    `,
-  };
-
-  contactEmail.sendMail(mail, (error) => {
-    if (error) {
-      console.error("Vendor email error:", error);
-    } else {
-      console.log(`Email sent successfully to vendor at ${vendorEmail}`);
+  return new Promise((resolve, reject) => {
+    if (!vendorEmail || !isValidEmail(vendorEmail)) {
+      reject(new Error("Invalid vendor email address"));
+      return;
     }
+
+    const formattedOrderDetails = formatOrderDetails(orderDetails, orderId);
+
+    const mail = {
+      from: process.env.EMAIL_USER,
+      to: vendorEmail,
+      subject: "New Order Received",
+      html: `
+        <link rel="stylesheet" href="styles.css">
+        <table width="600" cellpadding="20" cellspacing="0" style="font-family: Arial, sans-serif; margin: 0 auto; border: 1px solid #ddd; border-radius: 10px; background-color: #141414; color: #f9f9f9;">
+          <tr>
+            <td>
+              <h2 class="glow" style="color: #7c3aed;">New Order Received</h2>
+              <p>Dear Vendor,</p>
+              ${formattedOrderDetails}
+              <p>Please prepare the order for delivery.</p>
+              <p>Best regards,</p>
+              <p>Foodles Team</p>
+            </td>
+          </tr>
+        </table>
+      `,
+    };
+
+    contactEmail.sendMail(mail, (error, info) => {
+      if (error) {
+        console.error("Vendor email error:", error);
+        reject(error);
+      } else if (info.rejected.length > 0) {
+        console.error(`Email rejected for vendor ${vendorEmail}`);
+        reject(new Error("Vendor email delivery failed"));
+      } else {
+        console.log(`Email delivered successfully to vendor at ${vendorEmail}`);
+        resolve(true);
+      }
+    });
   });
 };
 
@@ -178,20 +198,43 @@ const razorpay = new Razorpay({
   key_secret: process.env.RAZORPAY_KEY_SECRET
 });
 
+// Log the Razorpay key and secret to ensure they are being read correctly
+console.log('Razorpay Key ID:', process.env.RAZORPAY_KEY_ID);
+console.log('Razorpay Key Secret:', process.env.RAZORPAY_KEY_SECRET);
+
 app.post('/payment/create-order', async (req, res) => {
   const { amount, currency = 'INR' } = req.body;
   
   try {
+    if (!amount || amount <= 0) {
+      throw new Error('Invalid amount specified');
+    }
+
     const options = {
-      amount: amount * 100, // Razorpay expects amount in paise
+      amount: Math.round(amount * 100),
       currency,
       receipt: `order_${Date.now()}`,
+      notes: {
+        description: "Foodles order payment",
+        timestamp: new Date().toISOString()
+      }
     };
 
     const order = await razorpay.orders.create(options);
-    res.json(order);
+    res.json({
+      ...order,
+      success: true
+    });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('Payment creation failed:', {
+      error: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
+    
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
   }
 });
 
@@ -205,19 +248,78 @@ app.post('/payment/verify-payment', async (req, res) => {
 
   const payment_verified = generated_signature === razorpay_signature;
 
-  if (payment_verified) {
-    // Update order status to 'paid' in your database
-    // Example: await Order.update({ status: 'paid' }, { where: { order_id: razorpay_order_id } });
-
-    // Send order confirmation email to user
-    sendOrderConfirmationEmail(name, email, JSON.parse(orderDetails), orderId);
-
-    // Send order received email to vendor
-    sendOrderReceivedEmail(vendorEmail, JSON.parse(orderDetails), orderId);
-  }
-
+  // Send immediate response for payment verification
   res.json({ verified: payment_verified });
+
+  // Process emails asynchronously after sending response
+  if (payment_verified) {
+    const parsedOrderDetails = JSON.parse(orderDetails);
+    processEmails(name, email, parsedOrderDetails, orderId, vendorEmail);
+  }
 });
 
-const PORT = process.env.PORT || 5000;
+// Add new endpoint to check email status
+app.get('/email-status/:orderId', async (req, res) => {
+  const { orderId } = req.params;
+  // Return the current email status for this order
+  res.json({
+    emailsSent: global.emailStatus?.[orderId]?.emailsSent || 0,
+    emailErrors: global.emailStatus?.[orderId]?.emailErrors || []
+  });
+});
+
+// Modify processEmails function to store status
+async function processEmails(name, email, orderDetails, orderId, vendorEmail) {
+  let emailsSent = 0;
+  let emailErrors = [];
+
+  try {
+    // Initialize global status tracking
+    global.emailStatus = global.emailStatus || {};
+    global.emailStatus[orderId] = { emailsSent: 0, emailErrors: [] };
+
+    // Send customer email
+    try {
+      await sendOrderConfirmationEmail(name, email, orderDetails, orderId);
+      emailsSent++;
+      console.log(`EMAIL SENT (${emailsSent}): Customer confirmation delivered`);
+    } catch (error) {
+      emailErrors.push({ type: 'customer', error: error.message });
+    }
+
+    // Send vendor email if provided
+    if (vendorEmail) {
+      try {
+        await sendOrderReceivedEmail(vendorEmail, orderDetails, orderId);
+        emailsSent++;
+        console.log(`EMAIL SENT (${emailsSent}): Vendor notification delivered`);
+      } catch (error) {
+        emailErrors.push({ type: 'vendor', error: error.message });
+      }
+    }
+
+    // Update global status after each email
+    global.emailStatus[orderId] = { emailsSent, emailErrors };
+  } catch (error) {
+    console.error('Error in email sending process:', error);
+  }
+}
+
+// Add more detailed logging for the health endpoint
+app.get('/health', (req, res) => {
+  console.log('Health check requested');
+  const status = {
+    status: 'OK',
+    timestamp: new Date(),
+    environment: process.env.NODE_ENV,
+    services: {
+      email: contactEmail ? 'connected' : 'error',
+      razorpay: razorpay ? 'connected' : 'error'
+    }
+  };
+  console.log('Health status:', status);
+  res.json(status);
+});
+
+const PORT = process.env.PORT || 5000; // Changed port number to 5002
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
