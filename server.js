@@ -22,6 +22,10 @@ app.use(cors({
 
 app.use(express.json());
 
+app.get('/', (req, res) => {
+    res.send('Welcome to the backend!');
+});
+
 // Serve static files from the "public" directory
 app.use(express.static(path.join(__dirname, 'public')));
 
