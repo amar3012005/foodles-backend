@@ -5,6 +5,7 @@ const cors = require("cors");
 const Razorpay = require("razorpay");
 const crypto = require("crypto");
 const path = require("path");
+const http = require("http");
 
 const app = express();
 
@@ -14,17 +15,17 @@ const isDevelopment = process.env.NODE_ENV !== 'production';
 app.use(cors({
   origin: isDevelopment 
     ? ['http://localhost:3000', 'http://localhost:3001', 'http://127.0.0.1:3000']
-    : ['https://foodles.shop', 'https://www.foodles.shop'],
+    : [
+        'http://localhost:3000', // Allow local dev in production
+        'https://foodles.shop', 
+        'https://www.foodles.shop'
+      ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
 app.use(express.json());
-
-app.get('/', (req, res) => {
-    res.send('Welcome to the backend!');
-});
 
 // Serve static files from the "public" directory
 app.use(express.static(path.join(__dirname, 'public')));
