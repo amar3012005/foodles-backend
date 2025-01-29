@@ -26,8 +26,6 @@ app.use(cors({
 }));
 
 app.use(express.json());
-
-// Serve static files from the "public" directory
 app.use(express.static(path.join(__dirname, 'public')));
 
 const contactEmail = nodemailer.createTransport({
@@ -51,59 +49,120 @@ app.get('/razorpay-key', (req, res) => {
 });
 
 const formatOrderDetails = (orderDetails, orderId) => {
-  return `
-    <table class="order-table">
-      <tr>
-        <th>Item</th>
-        <th style="text-align: right;">Quantity</th>
-        <th style="text-align: right;">Price</th>
-      </tr>
-      ${orderDetails.items.map(item => `
-        <tr>
-          <td>${item.name}</td>
-          <td style="text-align: right;">${item.quantity}</td>
-          <td style="text-align: right;">₹${(item.price * item.quantity).toFixed(2)}</td>
+  const userEmailTemplate = `
+  <div style="background-color: #000000; color: #ffffff; font-family: 'Arial', sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+    <div style="background-color: #111111; border-left: 4px solid #FFD700; padding: 20px; margin-bottom: 20px;">
+      <h1 style="color: #FFD700; margin: 0; font-size: 24px;">ORDER CONFIRMED</h1>
+      <p style="color: #888888; margin: 5px 0;">Order ID: #${orderId}</p>
+    </div>
+
+    <div style="background-color: #111111; padding: 20px; margin-bottom: 20px;">
+      <div style="border-bottom: 1px solid #333333; padding-bottom: 10px; margin-bottom: 15px;">
+        <h2 style="color: #FFD700; font-size: 18px; margin: 0;">ORDER DETAILS</h2>
+      </div>
+      
+      <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+        <tr style="border-bottom: 1px solid #333333;">
+          <th style="text-align: left; padding: 10px 5px; color: #888888;">Item</th>
+          <th style="text-align: center; padding: 10px 5px; color: #888888;">Qty</th>
+          <th style="text-align: right; padding: 10px 5px; color: #888888;">Price</th>
         </tr>
-      `).join('')}
-      <tr>
-        <td>Subtotal</td>
-        <td></td>
-        <td style="text-align: right;">₹${orderDetails.subtotal.toFixed(2)}</td>
-      </tr>
-      <tr>
-        <td>Delivery Fee</td>
-        <td></td>
-        <td style="text-align: right;">₹${orderDetails.deliveryFee.toFixed(2)}</td>
-      </tr>
-      <tr>
-        <td>Convenience Fee</td>
-        <td></td>
-        <td style="text-align: right;">₹${orderDetails.convenienceFee.toFixed(2)}</td>
-      </tr>
-      ${orderDetails.dogDonation > 0 ? `
-        <tr>
-          <td>Dog Donation</td>
-          <td></td>
-          <td style="text-align: right;">₹${orderDetails.dogDonation.toFixed(2)}</td>
+        ${orderDetails.items.map(item => `
+          <tr style="border-bottom: 1px solid #222222;">
+            <td style="padding: 10px 5px;">${item.name}</td>
+            <td style="text-align: center; padding: 10px 5px;">${item.quantity}</td>
+            <td style="text-align: right; padding: 10px 5px;">₹${(item.price * item.quantity).toFixed(2)}</td>
+          </tr>
+        `).join('')}
+        <tr style="background-color: #1A1A1A;">
+          <td colspan="2" style="padding: 10px 5px;">Subtotal</td>
+          <td style="text-align: right; padding: 10px 5px;">₹${orderDetails.subtotal.toFixed(2)}</td>
         </tr>
-      ` : ''}
-    </table>
-    <p>Grand Total: ₹${orderDetails.grandTotal.toFixed(2)}</p>
-    <table class="delivery-info">
-      <tr>
-        <th>Delivery Address</th>
-        <th style="text-align: right;">Order ID</th>
-      </tr>
-      <tr>
-        <td>${orderDetails.deliveryAddress}</td>
-        <td style="text-align: right;">#${orderId}</td>
-      </tr>
-    </table>
+        <tr style="background-color: #1A1A1A;">
+          <td colspan="2" style="padding: 10px 5px;">Delivery Fee</td>
+          <td style="text-align: right; padding: 10px 5px;">₹${orderDetails.deliveryFee.toFixed(2)}</td>
+        </tr>
+        <tr style="background-color: #1A1A1A;">
+          <td colspan="2" style="padding: 10px 5px;">Convenience Fee</td>
+          <td style="text-align: right; padding: 10px 5px;">₹${orderDetails.convenienceFee.toFixed(2)}</td>
+        </tr>
+        ${orderDetails.dogDonation > 0 ? `
+          <tr style="background-color: #1A1A1A;">
+            <td colspan="2" style="padding: 10px 5px;">Dog Donation</td>
+            <td style="text-align: right; padding: 10px 5px;">₹${orderDetails.dogDonation.toFixed(2)}</td>
+          </tr>
+        ` : ''}
+        <tr style="background-color: #FFD700;">
+          <td colspan="2" style="padding: 10px 5px; color: #000000; font-weight: bold;">Total</td>
+          <td style="text-align: right; padding: 10px 5px; color: #000000; font-weight: bold;">₹${orderDetails.grandTotal.toFixed(2)}</td>
+        </tr>
+      </table>
+
+      <div style="background-color: #1A1A1A; padding: 15px; margin-bottom: 20px;">
+        <h3 style="color: #FFD700; margin: 0 0 10px 0; font-size: 16px;">DELIVERY LOCATION</h3>
+        <p style="margin: 0; color: #ffffff;">${orderDetails.deliveryAddress}</p>
+      </div>
+
+      <div style="background-color: #1A1A1A; padding: 15px;">
+        <h3 style="color: #FFD700; margin: 0 0 10px 0; font-size: 16px;">VENDOR CONTACT</h3>
+        <p style="margin: 0; color: #ffffff;">Mobile: ${orderDetails.vendorPhone || 'Not provided'}</p>
+      </div>
+    </div>
+
+    <div style="text-align: center; padding: 20px; background-color: #111111;">
+      <p style="color: #888888; margin: 0;">Thank you for ordering with Foodles</p>
+    </div>
+  </div>
   `;
+
+  const vendorEmailTemplate = `
+  <div style="background-color: #000000; color: #ffffff; font-family: 'Arial', sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+    <div style="background-color: #111111; border-left: 4px solid #FFD700; padding: 20px; margin-bottom: 20px;">
+      <h1 style="color: #FFD700; margin: 0; font-size: 24px;">NEW ORDER RECEIVED</h1>
+      <p style="color: #888888; margin: 5px 0;">Order ID: #${orderId}</p>
+    </div>
+
+    <div style="background-color: #111111; padding: 20px; margin-bottom: 20px;">
+      <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+        <tr style="border-bottom: 1px solid #333333;">
+          <th style="text-align: left; padding: 10px 5px; color: #888888;">Item</th>
+          <th style="text-align: center; padding: 10px 5px; color: #888888;">Qty</th>
+          <th style="text-align: right; padding: 10px 5px; color: #888888;">Price</th>
+        </tr>
+        ${orderDetails.items.map(item => `
+          <tr style="border-bottom: 1px solid #222222;">
+            <td style="padding: 10px 5px;">${item.name}</td>
+            <td style="text-align: center; padding: 10px 5px;">${item.quantity}</td>
+            <td style="text-align: right; padding: 10px 5px;">₹${(item.price * item.quantity).toFixed(2)}</td>
+          </tr>
+        `).join('')}
+        <tr style="background-color: #FFD700;">
+          <td colspan="2" style="padding: 10px 5px; color: #000000; font-weight: bold;">Total Amount</td>
+          <td style="text-align: right; padding: 10px 5px; color: #000000; font-weight: bold;">₹${orderDetails.grandTotal.toFixed(2)}</td>
+        </tr>
+      </table>
+
+      <div style="background-color: #1A1A1A; padding: 15px; margin-bottom: 20px;">
+        <h3 style="color: #FFD700; margin: 0 0 10px 0; font-size: 16px;">DELIVERY LOCATION</h3>
+        <p style="margin: 0; color: #ffffff;">${orderDetails.deliveryAddress}</p>
+      </div>
+
+      <div style="background-color: #1A1A1A; padding: 15px;">
+        <h3 style="color: #FFD700; margin: 0 0 10px 0; font-size: 16px;">CUSTOMER CONTACT</h3>
+        <p style="margin: 0; color: #ffffff;">Mobile: ${orderDetails.customerPhone || 'Not provided'}</p>
+      </div>
+    </div>
+
+    <div style="text-align: center; padding: 20px; background-color: #111111;">
+      <p style="color: #888888; margin: 0;">Please prepare the order for delivery</p>
+    </div>
+  </div>
+  `;
+
+  return { userEmailTemplate, vendorEmailTemplate };
 };
 
 const isValidEmail = (email) => {
-  // Basic email validation
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   return emailRegex.test(email);
 };
@@ -115,27 +174,13 @@ const sendOrderConfirmationEmail = (name, email, orderDetails, orderId) => {
       return;
     }
 
-    const formattedOrderDetails = formatOrderDetails(orderDetails, orderId);
+    const { userEmailTemplate } = formatOrderDetails(orderDetails, orderId);
 
     const mail = {
       from: process.env.EMAIL_USER,
       to: email,
-      subject: "Order Confirmation",
-      html: `
-        <link rel="stylesheet" href="styles.css">
-        <table width="600" cellpadding="20" cellspacing="0" style="font-family: Arial, sans-serif; margin: 0 auto; border: 1px solid #ddd; border-radius: 10px; background-color: #141414; color: #f9f9f9;">
-          <tr>
-            <td>
-              <h2 class="glow" style="color: #7c3aed;">Order Confirmation</h2>
-              <p>Dear ${name},</p>
-              ${formattedOrderDetails}
-              <p>Thank you for your order. We'll keep you updated on the status.</p>
-              <p>Best regards,</p>
-              <p>Foodles Team</p>
-            </td>
-          </tr>
-        </table>
-      `,
+      subject: "Order Confirmation - Foodles",
+      html: userEmailTemplate
     };
 
     contactEmail.sendMail(mail, (error, info) => {
@@ -155,32 +200,18 @@ const sendOrderConfirmationEmail = (name, email, orderDetails, orderId) => {
 
 const sendOrderReceivedEmail = (vendorEmail, orderDetails, orderId) => {
   return new Promise((resolve, reject) => {
-    if (!vendorEmail || !isValidEmail(vendorEmail)) {
+    if (!isValidEmail(vendorEmail)) {
       reject(new Error("Invalid vendor email address"));
       return;
     }
 
-    const formattedOrderDetails = formatOrderDetails(orderDetails, orderId);
+    const { vendorEmailTemplate } = formatOrderDetails(orderDetails, orderId);
 
     const mail = {
       from: process.env.EMAIL_USER,
       to: vendorEmail,
-      subject: "New Order Received",
-      html: `
-        <link rel="stylesheet" href="styles.css">
-        <table width="600" cellpadding="20" cellspacing="0" style="font-family: Arial, sans-serif; margin: 0 auto; border: 1px solid #ddd; border-radius: 10px; background-color: #141414; color: #f9f9f9;">
-          <tr>
-            <td>
-              <h2 class="glow" style="color: #7c3aed;">New Order Received</h2>
-              <p>Dear Vendor,</p>
-              ${formattedOrderDetails}
-              <p>Please prepare the order for delivery.</p>
-              <p>Best regards,</p>
-              <p>Foodles Team</p>
-            </td>
-          </tr>
-        </table>
-      `,
+      subject: "New Order Received - Foodles",
+      html: vendorEmailTemplate
     };
 
     contactEmail.sendMail(mail, (error, info) => {
@@ -198,12 +229,12 @@ const sendOrderReceivedEmail = (vendorEmail, orderDetails, orderId) => {
   });
 };
 
+// Rest of your existing code remains unchanged
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID,
   key_secret: process.env.RAZORPAY_KEY_SECRET
 });
 
-// Log the Razorpay key and secret to ensure they are being read correctly
 console.log('Razorpay Key ID:', process.env.RAZORPAY_KEY_ID);
 console.log('Razorpay Key Secret:', process.env.RAZORPAY_KEY_SECRET);
 
@@ -253,10 +284,8 @@ app.post('/payment/verify-payment', async (req, res) => {
 
   const payment_verified = generated_signature === razorpay_signature;
 
-  // Send immediate response for payment verification
   res.json({ verified: payment_verified });
 
-  // Process emails asynchronously after sending response
   if (payment_verified) {
     const parsedOrderDetails = JSON.parse(orderDetails);
     processEmails(name, email, parsedOrderDetails, orderId, vendorEmail);
