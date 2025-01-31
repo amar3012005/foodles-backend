@@ -522,6 +522,35 @@ app.post('/test-missed-call', async (req, res) => {
   }
 });
 
+// Add restaurant status endpoints
+const getRestaurantStatus = (restaurantId) => {
+  const statusKey = `RESTAURANT_${restaurantId}_STATUS`;
+  const isOpen = process.env[statusKey] === '1';
+  return {
+    isOpen,
+    message: isOpen ? 'Open' : 'Temporarily Closed',
+    lastUpdated: new Date().toISOString()
+  };
+};
+
+app.get('/api/restaurants/status/:restaurantId', (req, res) => {
+  const { restaurantId } = req.params;
+  const status = getRestaurantStatus(restaurantId);
+  res.json(status);
+});
+
+app.get('/api/restaurants/status', (req, res) => {
+  const statuses = {};
+  // Get IDs from query params or check all known restaurant IDs
+  const ids = req.query.ids?.split(',') || ['1', '2', '3', '4'];
+  
+  ids.forEach(id => {
+    statuses[id] = getRestaurantStatus(id);
+  });
+  
+  res.json(statuses);
+});
+
 // Remove all previous server startup code and replace with this
 const PORT = process.env.PORT || 5000;
 
