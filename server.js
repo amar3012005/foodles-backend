@@ -6,24 +6,36 @@ const Razorpay = require("razorpay");
 const crypto = require("crypto");
 const path = require("path");
 const http = require("http");
+const twilio = require('twilio');
 
 const app = express();
 
-const isDevelopment = process.env.NODE_ENV !== 'production';
+const isDevelopment = process.env.NODE_ENV !== 'development';
 
-// Update CORS configuration
+// Update CORS configuration for production
 app.use(cors({
-  origin: isDevelopment 
-    ? ['http://localhost:3000', 'http://localhost:3001', 'http://127.0.0.1:3000',"https://precious-cobbler-d60f77.netlify.app"]
-    : [
-        'http://localhost:3000', // Allow local dev in production
-        'https://foodles.shop', 
-        'https://www.foodles.shop','https://precious-cobbler-d60f77.netlify.app'
-      ],
+  origin: [
+    'https://foodles.shop',
+    'https://www.foodles.shop',
+    'https://precious-cobbler-d60f77.netlify.app',
+    'http://localhost:3000' // Keep local development
+  ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
+
+// Add production logging middleware
+app.use((req, res, next) => {
+  console.log('📨 Request:', {
+    origin: req.get('origin'),
+    method: req.method,
+    path: req.path,
+    host: req.get('host'),
+    timestamp: new Date().toISOString()
+  });
+  next();
+});
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
@@ -275,7 +287,24 @@ app.post('/payment/create-order', async (req, res) => {
 });
 
 app.post('/payment/verify-payment', async (req, res) => {
-  const { razorpay_order_id, razorpay_payment_id, razorpay_signature, name, email, orderDetails, orderId, vendorEmail } = req.body;
+  const { 
+    razorpay_order_id, 
+    razorpay_payment_id, 
+    razorpay_signature, 
+    name, 
+    email, 
+    orderDetails, 
+    orderId, 
+    vendorEmail, 
+    vendorPhone 
+  } = req.body;
+
+  console.log('Payment verification details:', {
+    orderId,
+    vendorEmail,
+    vendorPhone,
+    hasOrderDetails: !!orderDetails
+  });
 
   const generated_signature = crypto
     .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
@@ -284,11 +313,26 @@ app.post('/payment/verify-payment', async (req, res) => {
 
   const payment_verified = generated_signature === razorpay_signature;
 
-  res.json({ verified: payment_verified });
-
   if (payment_verified) {
-    const parsedOrderDetails = JSON.parse(orderDetails);
-    processEmails(name, email, parsedOrderDetails, orderId, vendorEmail);
+    try {
+      const parsedOrderDetails = JSON.parse(orderDetails);
+      // Ensure vendorPhone is passed from both places
+      const finalVendorPhone = vendorPhone || parsedOrderDetails.vendorPhone;
+      
+      console.log('Processing order with vendor phone:', finalVendorPhone);
+      
+      await processEmails(name, email, parsedOrderDetails, orderId, vendorEmail, finalVendorPhone);
+      res.json({ 
+        verified: true,
+        orderId,
+        vendorNotified: !!finalVendorPhone
+      });
+    } catch (error) {
+      console.error('Order processing error:', error);
+      res.json({ verified: true, error: error.message });
+    }
+  } else {
+    res.json({ verified: false });
   }
 });
 
@@ -298,44 +342,71 @@ app.get('/email-status/:orderId', async (req, res) => {
   // Return the current email status for this order
   res.json({
     emailsSent: global.emailStatus?.[orderId]?.emailsSent || 0,
-    emailErrors: global.emailStatus?.[orderId]?.emailErrors || []
+    emailErrors: global.emailStatus?.[orderId]?.emailErrors || [],
+    missedCallStatus: global.emailStatus?.[orderId]?.missedCallStatus || null
   });
 });
 
 // Modify processEmails function to store status
-async function processEmails(name, email, orderDetails, orderId, vendorEmail) {
+async function processEmails(name, email, orderDetails, orderId, vendorEmail, vendorPhone) {
   let emailsSent = 0;
   let emailErrors = [];
+  let missedCallStatus = null;
 
   try {
-    // Initialize global status tracking
+    console.log('\n📋 Processing order notifications:', { orderId, vendorPhone });
     global.emailStatus = global.emailStatus || {};
-    global.emailStatus[orderId] = { emailsSent: 0, emailErrors: [] };
+    global.emailStatus[orderId] = { emailsSent: 0, emailErrors: [], missedCallStatus: null };
 
     // Send customer email
     try {
       await sendOrderConfirmationEmail(name, email, orderDetails, orderId);
       emailsSent++;
-      console.log(`EMAIL SENT (${emailsSent}): Customer confirmation delivered`);
+      console.log(`📧 Customer email sent successfully to ${email}`);
     } catch (error) {
+      console.error('❌ Customer email failed:', error.message);
       emailErrors.push({ type: 'customer', error: error.message });
     }
 
-    // Send vendor email if provided
+    // Send vendor notifications
     if (vendorEmail) {
       try {
         await sendOrderReceivedEmail(vendorEmail, orderDetails, orderId);
         emailsSent++;
-        console.log(`EMAIL SENT (${emailsSent}): Vendor notification delivered`);
+        console.log(`📧 Vendor email sent successfully to ${vendorEmail}`);
+        
+        // Trigger missed call after vendor email success
+        if (vendorPhone) {
+          console.log(`📞 Initiating vendor missed call to ${vendorPhone}`);
+          const callSuccess = await triggerMissedCall(vendorPhone);
+          missedCallStatus = callSuccess ? 'success' : 'failed';
+          console.log(`📱 Vendor notification status:`, {
+            email: 'sent',
+            missedCall: missedCallStatus,
+            phone: vendorPhone
+          });
+        }
       } catch (error) {
+        console.error('❌ Vendor notifications failed:', error.message);
         emailErrors.push({ type: 'vendor', error: error.message });
       }
     }
 
-    // Update global status after each email
-    global.emailStatus[orderId] = { emailsSent, emailErrors };
+    // Update final status
+    global.emailStatus[orderId] = { 
+      emailsSent, 
+      emailErrors, 
+      missedCallStatus 
+    };
+
+    console.log('✅ Order notifications completed:', {
+      orderId,
+      emailsSent,
+      missedCall: missedCallStatus
+    });
+
   } catch (error) {
-    console.error('Error in email sending process:', error);
+    console.error('❌ Notification process error:', error);
   }
 }
 
@@ -355,5 +426,130 @@ app.get('/health', (req, res) => {
   res.json(status);
 });
 
-const PORT = process.env.PORT || 5000; // Changed port number to 5002
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+// Add after other configurations
+const accountSid = process.env.TWILIO_ACCOUNT_SID;
+const authToken = process.env.TWILIO_AUTH_TOKEN;
+const twilioPhone = process.env.TWILIO_PHONE_NUMBER;
+
+// Initialize Twilio client
+const twilioClient = accountSid && authToken ? twilio(accountSid, authToken) : null;
+
+// Add helper function for phone number formatting
+const formatPhoneNumber = (phone) => {
+  let cleaned = phone.replace(/\D/g, '');
+  if (!cleaned.startsWith('91')) {
+    cleaned = '91' + cleaned;
+  }
+  return '+' + cleaned;
+};
+
+// Remove all duplicate triggerMissedCall functions and replace with this one
+const triggerMissedCall = async (vendorPhone) => {
+  console.log('\n🔄 Starting missed call process...');
+  
+  if (!twilioClient) {
+    console.warn('⚠️ Twilio not configured:', {
+      accountSid: !!process.env.TWILIO_ACCOUNT_SID,
+      authToken: !!process.env.TWILIO_AUTH_TOKEN,
+      phone: process.env.TWILIO_PHONE_NUMBER
+    });
+    return false;
+  }
+
+  try {
+    const formattedPhone = formatPhoneNumber(vendorPhone);
+    console.log(`📞 Call details:`, {
+      from: twilioPhone,
+      to: formattedPhone,
+      url: 'http://twimlets.com/reject'
+    });
+
+    const call = await twilioClient.calls.create({
+      url: 'http://twimlets.com/reject',
+      from: twilioPhone,
+      to: formattedPhone,
+      timeout: 5,
+      machineDetection: 'DetectMessageEnd'
+    });
+    
+    console.log('✅ Call created:', {
+      sid: call.sid,
+      status: call.status,
+      direction: call.direction
+    });
+
+    return true;
+  } catch (error) {
+    let errorMessage = 'Failed to make missed call';
+    switch(error.code) {
+      case 21614: errorMessage = 'Unverified number (trial account)'; break;
+      case 21210:
+      case 21211: errorMessage = 'Invalid phone format'; break;
+      case 21217: errorMessage = 'Phone not verified'; break;
+      default: errorMessage = error.message;
+    }
+
+    console.error('❌ Twilio error:', {
+      code: error.code,
+      message: errorMessage,
+      phone: vendorPhone
+    });
+    return false;
+  }
+};
+
+// Add test endpoint
+app.post('/test-missed-call', async (req, res) => {
+  console.log('📞 Test call request received:', req.body);
+  const { phoneNumber } = req.body;
+  
+  if (!phoneNumber) {
+    return res.status(400).json({ success: false, message: 'Phone number required' });
+  }
+
+  try {
+    const result = await triggerMissedCall(phoneNumber);
+    res.json({
+      success: result,
+      message: result ? 'Call initiated' : 'Call failed',
+      phone: phoneNumber
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+});
+
+// Remove all previous server startup code and replace with this
+const PORT = process.env.PORT || 5000;
+
+const startServer = () => {
+  const server = app.listen(PORT, () => {
+    console.log(`
+🚀 Server running in ${process.env.NODE_ENV} mode
+📍 Port: ${PORT}
+🌐 Allowed Origins:
+   - https://foodles.shop
+   - https://www.foodles.shop
+   - https://precious-cobbler-d60f77.netlify.app
+   - http://localhost:3000
+📞 Twilio: ${twilioClient ? '✓ Connected' : '✗ Not Configured'}
+📧 Email: ${contactEmail ? '✓ Connected' : '✗ Not Connected'}
+    `);
+  });
+
+  server.on('error', (error) => {
+    if (error.code === 'EADDRINUSE') {
+      console.error(`❌ Port ${PORT} is already in use. Please kill any existing processes on port ${PORT} and try again.`);
+      process.exit(1);
+    } else {
+      console.error('❌ Server error:', error);
+      process.exit(1);
+    }
+  });
+};
+
+// Start the server
+startServer();
