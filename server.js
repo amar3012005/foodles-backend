@@ -14,6 +14,16 @@ const twilioConfigs = {
     accountSid: process.env.TWILIO_ACCOUNT_SID_3,
     authToken: process.env.TWILIO_AUTH_TOKEN_3,
     phoneNumber: process.env.TWILIO_PHONE_NUMBER_3
+  },
+  '4': {  // JEEVA_FOOD-POINT
+    accountSid: process.env.TWILIO_ACCOUNT_SID_4,
+    authToken: process.env.TWILIO_AUTH_TOKEN_4,
+    phoneNumber: process.env.TWILIO_PHONE_NUMBER_4
+  },
+  '5': {  // PIZZA-BITE
+    accountSid: process.env.TWILIO_ACCOUNT_SID_5,
+    authToken: process.env.TWILIO_AUTH_TOKEN_5,
+    phoneNumber: process.env.TWILIO_PHONE_NUMBER_5
   }
 };
 
