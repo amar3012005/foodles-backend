@@ -62,6 +62,10 @@ app.get('/razorpay-key', (req, res) => {
 });
 
 const formatOrderDetails = (orderDetails, orderId) => {
+  // Get remainingPayment directly from orderDetails
+  const prePaidAmount = parseFloat(orderDetails.remainingPayment) || 0;
+  const remainingAmount = orderDetails.grandTotal - prePaidAmount;
+
   const userEmailTemplate = `
   <div style="background-color: #000000; color: #ffffff; font-family: 'Arial', sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
     <div style="background-color: #111111; border-left: 4px solid #FFD700; padding: 20px; margin-bottom: 20px;">
@@ -105,11 +109,29 @@ const formatOrderDetails = (orderDetails, orderId) => {
             <td style="text-align: right; padding: 10px 5px;">₹${orderDetails.dogDonation.toFixed(2)}</td>
           </tr>
         ` : ''}
-        <tr style="background-color: #FFD700;">
+        <tr style="background-color:rgb(146, 146, 146);">
           <td colspan="2" style="padding: 10px 5px; color: #000000; font-weight: bold;">Total</td>
           <td style="text-align: right; padding: 10px 5px; color: #000000; font-weight: bold;">₹${orderDetails.grandTotal.toFixed(2)}</td>
         </tr>
       </table>
+
+      <div style="margin-top: 20px; border-top: 1px solid #333333; padding-top: 15px;">
+        <h3 style="color: #FFD700; font-size: 16px; margin-bottom: 10px;">PAYMENT DETAILS</h3>
+        <table style="width: 100%; border-collapse: collapse;">
+          <tr style="background-color: #1A1A1A;">
+            <td style="padding: 10px 5px; color: #4ADE80;">Order-Confirmation Amount (paid)</td>
+            <td style="text-align: right; padding: 10px 5px; color: #4ADE80;">
+              ₹${prePaidAmount.toFixed(2)}
+            </td>
+          </tr>
+          <tr style="background-color: #FFD700;">
+            <td style="padding: 10px 5px; color: #000000;">Pay on Delivery</td>
+            <td style="text-align: right; padding: 10px 5px; color: #000000;">
+              ₹${remainingAmount.toFixed(2)}
+            </td>
+          </tr>
+        </table>
+      </div>
 
       <div style="background-color: #1A1A1A; padding: 15px; margin-bottom: 20px;">
         <h3 style="color: #FFD700; margin: 0 0 10px 0; font-size: 16px;">DELIVERY LOCATION</h3>
@@ -118,7 +140,11 @@ const formatOrderDetails = (orderDetails, orderId) => {
 
       <div style="background-color: #1A1A1A; padding: 15px;">
         <h3 style="color: #FFD700; margin: 0 0 10px 0; font-size: 16px;">VENDOR CONTACT</h3>
-        <p style="margin: 0; color: #ffffff;">Mobile: ${orderDetails.vendorPhone || 'Not provided'}</p>
+        <p style="margin: 0; color: #ffffff;">
+          Mobile: <a href="tel:${orderDetails.vendorPhone || ''}" style="color: #4ADE80; text-decoration: none; border-bottom: 1px dashed #4ADE80;">
+            ${orderDetails.vendorPhone || 'Not provided'}
+          </a>
+        </p>
       </div>
     </div>
 
@@ -131,7 +157,7 @@ const formatOrderDetails = (orderDetails, orderId) => {
   const vendorEmailTemplate = `
   <div style="background-color: #000000; color: #ffffff; font-family: 'Arial', sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
     <div style="background-color: #111111; border-left: 4px solid #FFD700; padding: 20px; margin-bottom: 20px;">
-      <h1 style="color: #FFD700; margin: 0; font-size: 24px;">NEW ORDER RECEIVED</h1>
+      <h1 style="color: #FFD700; margin: 0; font-size: 24px;">NEW ORDER_${orderId} RECEIVED</h1>
       <p style="color: #888888; margin: 5px 0;">Order ID: #${orderId}</p>
     </div>
 
@@ -140,20 +166,21 @@ const formatOrderDetails = (orderDetails, orderId) => {
         <tr style="border-bottom: 1px solid #333333;">
           <th style="text-align: left; padding: 10px 5px; color: #888888;">Item</th>
           <th style="text-align: center; padding: 10px 5px; color: #888888;">Qty</th>
-          <th style="text-align: right; padding: 10px 5px; color: #888888;">Price</th>
+
         </tr>
         ${orderDetails.items.map(item => `
           <tr style="border-bottom: 1px solid #222222;">
             <td style="padding: 10px 5px;">${item.name}</td>
             <td style="text-align: center; padding: 10px 5px;">${item.quantity}</td>
-            <td style="text-align: right; padding: 10px 5px;">₹${(item.price * item.quantity).toFixed(2)}</td>
           </tr>
         `).join('')}
-        <tr style="background-color: #FFD700;">
-          <td colspan="2" style="padding: 10px 5px; color: #000000; font-weight: bold;">Total Amount</td>
-          <td style="text-align: right; padding: 10px 5px; color: #000000; font-weight: bold;">₹${orderDetails.grandTotal.toFixed(2)}</td>
+        <tr style="background-color:rgb(250, 231, 124);">
+          <td colspan="2" style="padding: 10px 5px; color:black ; font-weight: bold;">Total Amount</td>
+          <td style="text-align: right; padding: 10px 5px; color: black; font-weight: bold;">₹${remainingAmount.toFixed(2)}</td>
         </tr>
       </table>
+
+
 
       <div style="background-color: #1A1A1A; padding: 15px; margin-bottom: 20px;">
         <h3 style="color: #FFD700; margin: 0 0 10px 0; font-size: 16px;">DELIVERY LOCATION</h3>
@@ -162,7 +189,11 @@ const formatOrderDetails = (orderDetails, orderId) => {
 
       <div style="background-color: #1A1A1A; padding: 15px;">
         <h3 style="color: #FFD700; margin: 0 0 10px 0; font-size: 16px;">CUSTOMER CONTACT</h3>
-        <p style="margin: 0; color: #ffffff;">Mobile: ${orderDetails.customerPhone || 'Not provided'}</p>
+        <p style="margin: 0; color: #ffffff;">
+          Mobile: <a href="tel:+${orderDetails.customerPhone || ''}" style="color: #4ADE80; text-decoration: none; border-bottom: 1px dashed #4ADE80;">
+            ${orderDetails.customerPhone || 'Not provided'}
+          </a>
+        </p>
       </div>
     </div>
 
@@ -480,8 +511,8 @@ console.log('Available Twilio configurations:', Object.keys(twilioClients));
 // Add helper function for phone number formatting
 const formatPhoneNumber = (phone) => {
   let cleaned = phone.replace(/\D/g, '');
-  if (!cleaned.startsWith('91')) {
-    cleaned = '91' + cleaned;
+  if (!cleaned.startsWith('+91')) {
+    cleaned = '+91' + cleaned;
   }
   return '+' + cleaned;
 };
@@ -562,13 +593,32 @@ app.post('/test-missed-call', async (req, res) => {
 });
 
 // Add restaurant status endpoints
+const restaurantStatusCache = {
+  lastCheck: null,
+  statuses: {}
+};
+
 const getRestaurantStatus = (restaurantId) => {
+  const now = new Date();
   const statusKey = `RESTAURANT_${restaurantId}_STATUS`;
-  const isOpen = process.env[statusKey] === '1';
+  const status = process.env[statusKey];
+  
+  // Add detailed logging
+  console.log(`Checking status for restaurant ${restaurantId}:`, {
+    statusKey,
+    status: status || 'not set',
+    timestamp: now.toISOString(),
+    allStatus: Object.keys(process.env)
+      .filter(key => key.startsWith('RESTAURANT_'))
+      .reduce((acc, key) => ({ ...acc, [key]: process.env[key] }), {})
+  });
+
   return {
-    isOpen,
-    message: isOpen ? 'Open' : 'Temporarily Closed',
-    lastUpdated: new Date().toISOString()
+    isOpen: status === '1',
+    message: status === '1' ? 'Open' : 'Temporarily Closed',
+    lastChecked: now.toISOString(),
+    restaurantId,
+    debug: { rawStatus: status }
   };
 };
 
@@ -579,15 +629,55 @@ app.get('/api/restaurants/status/:restaurantId', (req, res) => {
 });
 
 app.get('/api/restaurants/status', (req, res) => {
+  const now = new Date();
   const statuses = {};
-  // Get IDs from query params or check all known restaurant IDs
-  const ids = req.query.ids?.split(',') || ['1', '2', '3', '4'];
   
-  ids.forEach(id => {
-    statuses[id] = getRestaurantStatus(id);
+  // Get all restaurant IDs from query or use default list
+  const ids = req.query.ids?.split(',') || ['1', '2', '3', '4', '5'];
+  
+  // Check if we need to refresh the cache (10 seconds)
+  const shouldRefreshCache = !restaurantStatusCache.lastCheck || 
+    (now - restaurantStatusCache.lastCheck) > 10000;
+
+  if (shouldRefreshCache) {
+    console.log('Refreshing restaurant status cache:', {
+      timestamp: now.toISOString(),
+      requestedIds: ids,
+      previousCache: restaurantStatusCache
+    });
+
+    ids.forEach(id => {
+      statuses[id] = getRestaurantStatus(id);
+    });
+    
+    // Update cache
+    restaurantStatusCache.statuses = statuses;
+    restaurantStatusCache.lastCheck = now;
+  }
+
+  // Send response with metadata
+  const response = {
+    statuses: shouldRefreshCache ? statuses : restaurantStatusCache.statuses,
+    metadata: {
+      lastChecked: restaurantStatusCache.lastCheck,
+      nextCheckAt: new Date(restaurantStatusCache.lastCheck + 10000).toISOString(),
+      isFromCache: !shouldRefreshCache,
+      debug: {
+        currentTime: now.toISOString(),
+        cacheAge: restaurantStatusCache.lastCheck ? 
+          now - restaurantStatusCache.lastCheck : 
+          null
+      }
+    }
+  };
+
+  console.log('Sending status response:', {
+    fromCache: !shouldRefreshCache,
+    restaurantCount: Object.keys(response.statuses).length,
+    timestamp: now.toISOString()
   });
-  
-  res.json(statuses);
+
+  res.json(response);
 });
 
 // Add new endpoint for restaurant selection logging
