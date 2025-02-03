@@ -7,31 +7,40 @@ const crypto = require("crypto");
 const path = require("path");
 const http = require("http");
 const twilio = require('twilio');
+const WebSocket = require('ws');
 
 const app = express();
+const PORT = process.env.PORT || 5000;
+
+// Create HTTP server first
+const server = http.createServer(app);
+
+// Then create WebSocket server
+
 
 const isDevelopment = process.env.NODE_ENV !== 'development';
 
-// Update CORS configuration for production
+// Update CORS configuration for Render deployment
 app.use(cors({
   origin: [
     'https://foodles.shop',
     'https://www.foodles.shop',
-    'https://precious-cobbler-d60f77.netlify.app',
-    'http://localhost:3000' // Keep local development
+    'https://precious-cobbler-d60f77.netlify.app', // If using Netlify for frontend
+    'http://localhost:3000'                 // Keep local development
   ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization', 'Origin']
 }));
 
-// Add production logging middleware
+// Add request logging middleware
 app.use((req, res, next) => {
   console.log('📨 Request:', {
     origin: req.get('origin'),
     method: req.method,
     path: req.path,
     host: req.get('host'),
+    environment: process.env.NODE_ENV,
     timestamp: new Date().toISOString()
   });
   next();
@@ -61,6 +70,22 @@ app.get('/razorpay-key', (req, res) => {
 });
 
 const formatOrderDetails = (orderDetails, orderId) => {
+  // Format phone numbers consistently
+  const formatPhoneForDisplay = (phone) => {
+    if (!phone) return 'Not provided';
+    const cleaned = phone.replace(/^\+?(91)?/, '').replace(/\D/g, '');
+    return `+91 ${cleaned}`;
+  };
+
+  const prePaidAmount = parseFloat(orderDetails.remainingPayment) || 0;
+  const remainingAmount = orderDetails.grandTotal - prePaidAmount;
+
+  // Format phone numbers for links
+  const vendorPhoneLink = orderDetails.vendorPhone ? 
+    formatPhoneNumber(orderDetails.vendorPhone) : '';
+  const customerPhoneLink = orderDetails.customerPhone ? 
+    formatPhoneNumber(orderDetails.customerPhone) : '';
+
   const userEmailTemplate = `
   <div style="background-color: #000000; color: #ffffff; font-family: 'Arial', sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
     <div style="background-color: #111111; border-left: 4px solid #FFD700; padding: 20px; margin-bottom: 20px;">
@@ -104,11 +129,29 @@ const formatOrderDetails = (orderDetails, orderId) => {
             <td style="text-align: right; padding: 10px 5px;">₹${orderDetails.dogDonation.toFixed(2)}</td>
           </tr>
         ` : ''}
-        <tr style="background-color: #FFD700;">
+        <tr style="background-color:rgb(146, 146, 146);">
           <td colspan="2" style="padding: 10px 5px; color: #000000; font-weight: bold;">Total</td>
           <td style="text-align: right; padding: 10px 5px; color: #000000; font-weight: bold;">₹${orderDetails.grandTotal.toFixed(2)}</td>
         </tr>
       </table>
+
+      <div style="margin-top: 20px; border-top: 1px solid #333333; padding-top: 15px;">
+        <h3 style="color: #FFD700; font-size: 16px; margin-bottom: 10px;">PAYMENT DETAILS</h3>
+        <table style="width: 100%; border-collapse: collapse;">
+          <tr style="background-color: #1A1A1A;">
+            <td style="padding: 10px 5px; color: #4ADE80;">Order-Confirmation Amount (paid)</td>
+            <td style="text-align: right; padding: 10px 5px; color: #4ADE80;">
+              ₹${prePaidAmount.toFixed(2)}
+            </td>
+          </tr>
+          <tr style="background-color: #FFD700;">
+            <td style="padding: 10px 5px; color: #000000;">Pay on Delivery</td>
+            <td style="text-align: right; padding: 10px 5px; color: #000000;">
+              ₹${remainingAmount.toFixed(2)}
+            </td>
+          </tr>
+        </table>
+      </div>
 
       <div style="background-color: #1A1A1A; padding: 15px; margin-bottom: 20px;">
         <h3 style="color: #FFD700; margin: 0 0 10px 0; font-size: 16px;">DELIVERY LOCATION</h3>
@@ -117,7 +160,11 @@ const formatOrderDetails = (orderDetails, orderId) => {
 
       <div style="background-color: #1A1A1A; padding: 15px;">
         <h3 style="color: #FFD700; margin: 0 0 10px 0; font-size: 16px;">VENDOR CONTACT</h3>
-        <p style="margin: 0; color: #ffffff;">Mobile: ${orderDetails.vendorPhone || 'Not provided'}</p>
+        <p style="margin: 0; color: #ffffff;">
+          Mobile: <a href="tel:${vendorPhoneLink}" style="color: #4ADE80; text-decoration: none; border-bottom: 1px dashed #4ADE80;">
+            ${formatPhoneForDisplay(orderDetails.vendorPhone)}
+          </a>
+        </p>
       </div>
     </div>
 
@@ -130,7 +177,7 @@ const formatOrderDetails = (orderDetails, orderId) => {
   const vendorEmailTemplate = `
   <div style="background-color: #000000; color: #ffffff; font-family: 'Arial', sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
     <div style="background-color: #111111; border-left: 4px solid #FFD700; padding: 20px; margin-bottom: 20px;">
-      <h1 style="color: #FFD700; margin: 0; font-size: 24px;">NEW ORDER RECEIVED</h1>
+      <h1 style="color: #FFD700; margin: 0; font-size: 24px;">NEW ORDER_${orderId} RECEIVED</h1>
       <p style="color: #888888; margin: 5px 0;">Order ID: #${orderId}</p>
     </div>
 
@@ -139,20 +186,21 @@ const formatOrderDetails = (orderDetails, orderId) => {
         <tr style="border-bottom: 1px solid #333333;">
           <th style="text-align: left; padding: 10px 5px; color: #888888;">Item</th>
           <th style="text-align: center; padding: 10px 5px; color: #888888;">Qty</th>
-          <th style="text-align: right; padding: 10px 5px; color: #888888;">Price</th>
+
         </tr>
         ${orderDetails.items.map(item => `
           <tr style="border-bottom: 1px solid #222222;">
             <td style="padding: 10px 5px;">${item.name}</td>
             <td style="text-align: center; padding: 10px 5px;">${item.quantity}</td>
-            <td style="text-align: right; padding: 10px 5px;">₹${(item.price * item.quantity).toFixed(2)}</td>
           </tr>
         `).join('')}
-        <tr style="background-color: #FFD700;">
-          <td colspan="2" style="padding: 10px 5px; color: #000000; font-weight: bold;">Total Amount</td>
-          <td style="text-align: right; padding: 10px 5px; color: #000000; font-weight: bold;">₹${orderDetails.grandTotal.toFixed(2)}</td>
+        <tr style="background-color:rgb(250, 231, 124);">
+          <td colspan="2" style="padding: 10px 5px; color:black ; font-weight: bold;">Total Amount</td>
+          <td style="text-align: right; padding: 10px 5px; color: black; font-weight: bold;">₹${remainingAmount.toFixed(2)}</td>
         </tr>
       </table>
+
+
 
       <div style="background-color: #1A1A1A; padding: 15px; margin-bottom: 20px;">
         <h3 style="color: #FFD700; margin: 0 0 10px 0; font-size: 16px;">DELIVERY LOCATION</h3>
@@ -161,7 +209,11 @@ const formatOrderDetails = (orderDetails, orderId) => {
 
       <div style="background-color: #1A1A1A; padding: 15px;">
         <h3 style="color: #FFD700; margin: 0 0 10px 0; font-size: 16px;">CUSTOMER CONTACT</h3>
-        <p style="margin: 0; color: #ffffff;">Mobile: ${orderDetails.customerPhone || 'Not provided'}</p>
+        <p style="margin: 0; color: #ffffff;">
+          Mobile: <a href="tel:${customerPhoneLink}" style="color: #4ADE80; text-decoration: none; border-bottom: 1px dashed #4ADE80;">
+            ${formatPhoneForDisplay(orderDetails.customerPhone)}
+          </a>
+        </p>
       </div>
     </div>
 
@@ -296,13 +348,17 @@ app.post('/payment/verify-payment', async (req, res) => {
     orderDetails, 
     orderId, 
     vendorEmail, 
-    vendorPhone 
+    vendorPhone,
+    restaurantId,
+    restaurantName 
   } = req.body;
 
   console.log('Payment verification details:', {
     orderId,
     vendorEmail,
     vendorPhone,
+    restaurantId,
+    restaurantName,
     hasOrderDetails: !!orderDetails
   });
 
@@ -317,11 +373,14 @@ app.post('/payment/verify-payment', async (req, res) => {
     try {
       const parsedOrderDetails = JSON.parse(orderDetails);
       // Ensure vendorPhone is passed from both places
-      const finalVendorPhone = vendorPhone || parsedOrderDetails.vendorPhone;
+      const finalVendorPhone = formatPhoneNumber(vendorPhone || parsedOrderDetails.vendorPhone);
+      if (parsedOrderDetails.customerPhone) {
+        parsedOrderDetails.customerPhone = formatPhoneNumber(parsedOrderDetails.customerPhone);
+      }
       
       console.log('Processing order with vendor phone:', finalVendorPhone);
       
-      await processEmails(name, email, parsedOrderDetails, orderId, vendorEmail, finalVendorPhone);
+      await processEmails(name, email, parsedOrderDetails, orderId, vendorEmail, finalVendorPhone, restaurantId);
       res.json({ 
         verified: true,
         orderId,
@@ -348,7 +407,7 @@ app.get('/email-status/:orderId', async (req, res) => {
 });
 
 // Modify processEmails function to store status
-async function processEmails(name, email, orderDetails, orderId, vendorEmail, vendorPhone) {
+async function processEmails(name, email, orderDetails, orderId, vendorEmail, vendorPhone, restaurantId) {
   let emailsSent = 0;
   let emailErrors = [];
   let missedCallStatus = null;
@@ -377,14 +436,14 @@ async function processEmails(name, email, orderDetails, orderId, vendorEmail, ve
         
         // Trigger missed call after vendor email success
         if (vendorPhone) {
-          console.log(`📞 Initiating vendor missed call to ${vendorPhone}`);
-          const callSuccess = await triggerMissedCall(vendorPhone);
-          missedCallStatus = callSuccess ? 'success' : 'failed';
-          console.log(`📱 Vendor notification status:`, {
-            email: 'sent',
-            missedCall: missedCallStatus,
-            phone: vendorPhone
+          console.log(`📞 Initiating vendor missed call:`, {
+            restaurantId,
+            phone: vendorPhone,
+            hasConfig: !!twilioClients[restaurantId]
           });
+          
+          const callSuccess = await triggerMissedCall(vendorPhone, restaurantId);
+          missedCallStatus = callSuccess ? 'success' : 'failed';
         }
       } catch (error) {
         console.error('❌ Vendor notifications failed:', error.message);
@@ -426,72 +485,103 @@ app.get('/health', (req, res) => {
   res.json(status);
 });
 
-// Add after other configurations
-const accountSid = process.env.TWILIO_ACCOUNT_SID;
-const authToken = process.env.TWILIO_AUTH_TOKEN;
-const twilioPhone = process.env.TWILIO_PHONE_NUMBER;
+// Update Twilio configuration manager with dynamic loading from .env
+const twilioConfigs = {
+  '1': {  // BABA_JI FOOD-POINT
+    accountSid: process.env.TWILIO_ACCOUNT_SID_1,
+    authToken: process.env.TWILIO_AUTH_TOKEN_1,
+    phoneNumber: process.env.TWILIO_PHONE_NUMBER_1
+  },
+  '2': {  // HIMALAYAN_CAFE
+    accountSid: process.env.TWILIO_ACCOUNT_SID_2,
+    authToken: process.env.TWILIO_AUTH_TOKEN_2,
+    phoneNumber: process.env.TWILIO_PHONE_NUMBER_2
+  },
+  '3': {  // SONU_FOOD-POINT
+    accountSid: process.env.TWILIO_ACCOUNT_SID_3,
+    authToken: process.env.TWILIO_AUTH_TOKEN_3,
+    phoneNumber: process.env.TWILIO_PHONE_NUMBER_3
+  },
+  '4': {  // JEEVA_FOOD-POINT
+    accountSid: process.env.TWILIO_ACCOUNT_SID_4,
+    authToken: process.env.TWILIO_AUTH_TOKEN_4,
+    phoneNumber: process.env.TWILIO_PHONE_NUMBER_4
+  },
+  '5': {  // PIZZA-BITE
+    accountSid: process.env.TWILIO_ACCOUNT_SID_5,
+    authToken: process.env.TWILIO_AUTH_TOKEN_5,
+    phoneNumber: process.env.TWILIO_PHONE_NUMBER_5
+  }
+};
 
-// Initialize Twilio client
-const twilioClient = accountSid && authToken ? twilio(accountSid, authToken) : null;
+// Initialize Twilio clients for each restaurant
+const twilioClients = {};
+
+Object.entries(twilioConfigs).forEach(([restaurantId, config]) => {
+  if (config.accountSid && config.authToken) {
+    twilioClients[restaurantId] = {
+      client: twilio(config.accountSid, config.authToken),
+      phone: config.phoneNumber
+    };
+    console.log(`✓ Twilio initialized for Restaurant ${restaurantId}`);
+  } else {
+    console.log(`⚠️ Missing Twilio credentials for Restaurant ${restaurantId}`);
+  }
+});
+
+console.log('Available Twilio configurations:', Object.keys(twilioClients));
 
 // Add helper function for phone number formatting
 const formatPhoneNumber = (phone) => {
-  let cleaned = phone.replace(/\D/g, '');
-  if (!cleaned.startsWith('91')) {
-    cleaned = '91' + cleaned;
-  }
-  return '+' + cleaned;
+  const cleaned = phone.replace(/^\+?(91)?/, '').replace(/\D/g, '');
+  return cleaned ? `+91${cleaned}` : '';
 };
 
 // Remove all duplicate triggerMissedCall functions and replace with this one
-const triggerMissedCall = async (vendorPhone) => {
-  console.log('\n🔄 Starting missed call process...');
+const triggerMissedCall = async (vendorPhone, restaurantId) => {
+  console.log('\n🔄 Starting missed call process:', {
+    restaurantId,
+    vendorPhone,
+    availableConfigs: Object.keys(twilioClients)
+  });
   
-  if (!twilioClient) {
-    console.warn('⚠️ Twilio not configured:', {
-      accountSid: !!process.env.TWILIO_ACCOUNT_SID,
-      authToken: !!process.env.TWILIO_AUTH_TOKEN,
-      phone: process.env.TWILIO_PHONE_NUMBER
-    });
+  const twilioConfig = twilioClients[restaurantId];
+  if (!twilioConfig?.client) {
+    console.error('❌ No Twilio configuration found for restaurant:', restaurantId);
     return false;
   }
 
   try {
     const formattedPhone = formatPhoneNumber(vendorPhone);
-    console.log(`📞 Call details:`, {
-      from: twilioPhone,
+    console.log(`📞 Restaurant ${restaurantId} call details:`, {
+      from: twilioConfig.phone,
       to: formattedPhone,
-      url: 'http://twimlets.com/reject'
+      config: {
+        sid: twilioConfig.client.accountSid,
+        phone: twilioConfig.phone
+      }
     });
 
-    const call = await twilioClient.calls.create({
+    const call = await twilioConfig.client.calls.create({
       url: 'http://twimlets.com/reject',
-      from: twilioPhone,
+      from: twilioConfig.phone,
       to: formattedPhone,
-      timeout: 5,
-      machineDetection: 'DetectMessageEnd'
+      timeout: 15
     });
     
     console.log('✅ Call created:', {
       sid: call.sid,
       status: call.status,
-      direction: call.direction
+      restaurant: restaurantId,
+      phone: formattedPhone
     });
 
     return true;
   } catch (error) {
-    let errorMessage = 'Failed to make missed call';
-    switch(error.code) {
-      case 21614: errorMessage = 'Unverified number (trial account)'; break;
-      case 21210:
-      case 21211: errorMessage = 'Invalid phone format'; break;
-      case 21217: errorMessage = 'Phone not verified'; break;
-      default: errorMessage = error.message;
-    }
-
     console.error('❌ Twilio error:', {
+      restaurantId,
       code: error.code,
-      message: errorMessage,
+      message: error.message,
       phone: vendorPhone
     });
     return false;
@@ -523,13 +613,32 @@ app.post('/test-missed-call', async (req, res) => {
 });
 
 // Add restaurant status endpoints
+const restaurantStatusCache = {
+  lastCheck: null,
+  statuses: {}
+};
+
 const getRestaurantStatus = (restaurantId) => {
+  const now = new Date();
   const statusKey = `RESTAURANT_${restaurantId}_STATUS`;
-  const isOpen = process.env[statusKey] === '1';
+  const status = process.env[statusKey];
+  
+  // Add detailed logging
+  console.log(`Checking status for restaurant ${restaurantId}:`, {
+    statusKey,
+    status: status || 'not set',
+    timestamp: now.toISOString(),
+    allStatus: Object.keys(process.env)
+      .filter(key => key.startsWith('RESTAURANT_'))
+      .reduce((acc, key) => ({ ...acc, [key]: process.env[key] }), {})
+  });
+
   return {
-    isOpen,
-    message: isOpen ? 'Open' : 'Temporarily Closed',
-    lastUpdated: new Date().toISOString()
+    isOpen: status === '1',
+    message: status === '1' ? 'Open' : 'Temporarily Closed',
+    lastChecked: now.toISOString(),
+    restaurantId,
+    debug: { rawStatus: status }
   };
 };
 
@@ -540,23 +649,154 @@ app.get('/api/restaurants/status/:restaurantId', (req, res) => {
 });
 
 app.get('/api/restaurants/status', (req, res) => {
+  const now = new Date();
   const statuses = {};
-  // Get IDs from query params or check all known restaurant IDs
-  const ids = req.query.ids?.split(',') || ['1', '2', '3', '4'];
   
-  ids.forEach(id => {
-    statuses[id] = getRestaurantStatus(id);
+  // Get all restaurant IDs from query or use default list
+  const ids = req.query.ids?.split(',') || ['1', '2', '3', '4', '5'];
+  
+  // Check if we need to refresh the cache (10 seconds)
+  const shouldRefreshCache = !restaurantStatusCache.lastCheck || 
+    (now - restaurantStatusCache.lastCheck) > 10000;
+
+  if (shouldRefreshCache) {
+    console.log('Refreshing restaurant status cache:', {
+      timestamp: now.toISOString(),
+      requestedIds: ids,
+      previousCache: restaurantStatusCache
+    });
+
+    ids.forEach(id => {
+      statuses[id] = getRestaurantStatus(id);
+    });
+    
+    // Update cache
+    restaurantStatusCache.statuses = statuses;
+    restaurantStatusCache.lastCheck = now;
+  }
+
+  // Send response with metadata
+  const response = {
+    statuses: shouldRefreshCache ? statuses : restaurantStatusCache.statuses,
+    metadata: {
+      lastChecked: restaurantStatusCache.lastCheck,
+      nextCheckAt: new Date(restaurantStatusCache.lastCheck + 10000).toISOString(),
+      isFromCache: !shouldRefreshCache,
+      debug: {
+        currentTime: now.toISOString(),
+        cacheAge: restaurantStatusCache.lastCheck ? 
+          now - restaurantStatusCache.lastCheck : 
+          null
+      }
+    }
+  };
+
+  console.log('Sending status response:', {
+    fromCache: !shouldRefreshCache,
+    restaurantCount: Object.keys(response.statuses).length,
+    timestamp: now.toISOString()
   });
-  
-  res.json(statuses);
+
+  res.json(response);
 });
 
-// Remove all previous server startup code and replace with this
-const PORT = process.env.PORT || 5000;
+// Add new endpoint for restaurant selection logging
+app.post('/api/log-restaurant-selection', (req, res) => {
+  const { restaurantId, restaurantName, timestamp } = req.body;
+  
+  console.log('\n🏪 Restaurant Selected:', {
+    restaurantId,
+    restaurantName,
+    timestamp
+  });
 
-const startServer = () => {
-  const server = app.listen(PORT, () => {
-    console.log(`
+  res.json({ success: true });
+});
+
+// Add status monitoring system
+const statusMonitor = {
+  watchers: new Set(),
+  previousStatuses: {},
+  checkInterval: null,
+
+  startMonitoring() {
+    this.checkInterval = setInterval(() => {
+      const changes = this.checkForChanges();
+      if (changes.length > 0) {
+        this.notifyWatchers(changes);
+      }
+    }, 1000); // Check every second
+  },
+
+  checkForChanges() {
+    const changes = [];
+    const ids = ['1', '2', '3', '4', '5'];
+    
+    ids.forEach(id => {
+      const statusKey = `RESTAURANT_${id}_STATUS`;
+      const currentStatus = process.env[statusKey];
+      
+      if (this.previousStatuses[id] !== currentStatus) {
+        changes.push({
+          restaurantId: id,
+          oldStatus: this.previousStatuses[id],
+          newStatus: currentStatus,
+          timestamp: new Date().toISOString()
+        });
+        this.previousStatuses[id] = currentStatus;
+      }
+    });
+    
+    return changes;
+  },
+
+  notifyWatchers(changes) {
+    const message = JSON.stringify({ type: 'STATUS_UPDATE', changes });
+    this.watchers.forEach(client => {
+      if (client.readyState === 1) { // 1 = OPEN
+        client.send(message);
+      }
+    });
+  }
+};
+
+// Initialize status monitor
+statusMonitor.startMonitoring();
+
+// Initialize WebSocket server
+const wss = new WebSocket.Server({ server });
+
+// WebSocket connection handler
+wss.on('connection', (ws) => {
+  statusMonitor.watchers.add(ws);
+  
+  // Send initial statuses
+  const initialStatus = Object.keys(process.env)
+    .filter(key => key.startsWith('RESTAURANT_'))
+    .reduce((acc, key) => {
+      const id = key.split('_')[1];
+      acc[id] = process.env[key];
+      return acc;
+    }, {});
+  
+  ws.send(JSON.stringify({ 
+    type: 'INITIAL_STATUS', 
+    statuses: initialStatus 
+  }));
+
+  ws.on('close', () => {
+    statusMonitor.watchers.delete(ws);
+  });
+});
+
+// Start the server
+server.listen(PORT, () => {
+  // Get status of Twilio configurations
+  const twilioStatus = Object.entries(twilioClients)
+    .map(([id, config]) => `Restaurant ${id}: ✓`)
+    .join('\n   ');
+
+  console.log(`
 🚀 Server running in ${process.env.NODE_ENV} mode
 📍 Port: ${PORT}
 🌐 Allowed Origins:
@@ -564,21 +804,19 @@ const startServer = () => {
    - https://www.foodles.shop
    - https://precious-cobbler-d60f77.netlify.app
    - http://localhost:3000
-📞 Twilio: ${twilioClient ? '✓ Connected' : '✗ Not Configured'}
+📞 Twilio Status:
+   ${twilioStatus || '✗ No restaurants configured'}
 📧 Email: ${contactEmail ? '✓ Connected' : '✗ Not Connected'}
-    `);
-  });
+  `);
+});
 
-  server.on('error', (error) => {
-    if (error.code === 'EADDRINUSE') {
-      console.error(`❌ Port ${PORT} is already in use. Please kill any existing processes on port ${PORT} and try again.`);
-      process.exit(1);
-    } else {
-      console.error('❌ Server error:', error);
-      process.exit(1);
-    }
-  });
-};
-
-// Start the server
-startServer();
+// Error handler for the server
+server.on('error', (error) => {
+  if (error.code === 'EADDRINUSE') {
+    console.error(`❌ Port ${PORT} is already in use. Please kill any existing processes on port ${PORT} and try again.`);
+    process.exit(1);
+  } else {
+    console.error('❌ Server error:', error);
+    process.exit(1);
+  }
+});
