@@ -8,6 +8,15 @@ const path = require("path");
 const http = require("http");
 const twilio = require('twilio');
 const WebSocket = require('ws');
+const fs = require('fs');
+
+// Watch .env file for changes
+fs.watch(path.join(__dirname, '.env'), (eventType, filename) => {
+  if (eventType === 'change') {
+    console.log('🔄 .env file changed, reloading configuration...');
+    require('dotenv').config({ override: true });
+  }
+});
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -26,7 +35,7 @@ app.use(cors({
     'https://foodles.shop',
     'https://www.foodles.shop',
     'https://precious-cobbler-d60f77.netlify.app', // If using Netlify for frontend
-    ''                 // Keep local development
+    'http://localhost:3000'                 // Keep local development
   ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -55,13 +64,30 @@ const contactEmail = nodemailer.createTransport({
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS,
   },
+  tls: {
+    rejectUnauthorized: false
+  },
+  pool: true, // Enable pooling for better performance
+  maxConnections: 5,
+  rateDelta: 1000, // Limit sending rate
+  rateLimit: 5 // Max emails per rateDelta
 });
 
+// Add better error handling for email verification
 contactEmail.verify((error) => {
   if (error) {
-    console.error("Email transport verification failed:", error);
+    console.error("Email transport verification failed:", {
+      error: error.message,
+      code: error.code,
+      user: process.env.EMAIL_USER,
+      hasPassword: !!process.env.EMAIL_PASS,
+      timestamp: new Date().toISOString()
+    });
   } else {
-    console.log("Email service ready");
+    console.log("✅ Email service ready:", {
+      user: process.env.EMAIL_USER,
+      timestamp: new Date().toISOString()
+    });
   }
 });
 
@@ -170,6 +196,79 @@ const formatOrderDetails = (orderDetails, orderId) => {
 
     <div style="text-align: center; padding: 20px; background-color: #111111;">
       <p style="color: #888888; margin: 0;">Thank you for ordering with Foodles</p>
+      
+      <!-- Replace Feedback Section with inline form -->
+      <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #333;">
+        <p style="color: #FFD700; font-size: 14px; margin-bottom: 10px;">Any Suggestions or Feedback?</p>
+        <div style="max-width: 400px; margin: 0 auto;">
+          <form id="feedbackForm" onsubmit="return submitFeedback(event)" style="display: flex; gap: 10px;">
+            <input type="hidden" name="orderId" value="${orderId}">
+            <input 
+              type="text" 
+              name="feedback" 
+              placeholder="Type your feedback here..."
+              style="flex: 1;
+                     background: #222;
+                     border: 1px solid #333;
+                     padding: 8px 12px;
+                     color: #fff;
+                     border-radius: 4px;
+                     font-family: Arial, sans-serif;
+                     font-size: 14px;
+                     outline: none;"
+            >
+            <button 
+              type="submit"
+              style="background: #FFD700;
+                     border: none;
+                     padding: 8px 16px;
+                     color: #000;
+                     border-radius: 4px;
+                     cursor: pointer;
+                     display: flex;
+                     align-items: center;
+                     justify-content: center;"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="22" y1="2" x2="11" y2="13"></line>
+                <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+              </svg>
+            </button>
+          </form>
+        </div>
+        <div id="feedbackStatus" style="margin-top: 10px; color: #4ADE80; font-size: 14px; display: none;">
+          Thank you for your feedback!
+        </div>
+      </div>
+      
+      <script>
+        function submitFeedback(e) {
+          e.preventDefault();
+          const form = e.target;
+          const data = {
+            orderId: form.orderId.value,
+            feedback: form.feedback.value
+          };
+          
+          fetch('${process.env.BASE_URL}/api/submit-feedback', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(data)
+          })
+          .then(response => response.json())
+          .then(result => {
+            if (result.success) {
+              form.style.display = 'none';
+              document.getElementById('feedbackStatus').style.display = 'block';
+            }
+          })
+          .catch(error => console.error('Error:', error));
+          
+          return false;
+        }
+      </script>
     </div>
   </div>
   `;
@@ -241,10 +340,34 @@ const sendOrderConfirmationEmail = (name, email, orderDetails, orderId) => {
     const { userEmailTemplate } = formatOrderDetails(orderDetails, orderId);
 
     const mail = {
-      from: process.env.EMAIL_USER,
+      from: {
+        name: 'Foodles Orders',
+        address: process.env.EMAIL_USER
+      },
       to: email,
-      subject: "Order Confirmation - Foodles",
-      html: userEmailTemplate
+      subject: `Order Confirmed: #${orderId} - Foodles`,
+      html: userEmailTemplate,
+      headers: {
+        'X-Entity-Ref-ID': `order-${orderId}`,
+        'List-Unsubscribe': `<mailto:${process.env.EMAIL_USER}?subject=unsubscribe>`,
+        'X-Priority': '1',
+        'Precedence': 'high',
+        'X-MSMail-Priority': 'High',
+        'Importance': 'high',
+        // Prevent threading in Gmail
+        'Message-ID': `<order-${orderId}-${Date.now()}@foodles.shop>`,
+        'X-GM-THRID': `order-${orderId}`,
+        'References': '',
+        // Add these headers to prevent quoted text hiding
+        'Content-Type': 'text/html; charset=utf-8',
+        'X-Auto-Response-Suppress': 'All',
+        'Auto-Submitted': 'auto-generated'
+      },
+      // Add these options to prevent quoted text hiding
+      textEncoding: 'base64',
+      alternative: true,
+      messageId: `order-${orderId}-${Date.now()}@foodles.shop`,
+      normalizeHeaderKey: (key) => key // Preserve header case
     };
 
     contactEmail.sendMail(mail, (error, info) => {
@@ -272,10 +395,33 @@ const sendOrderReceivedEmail = (vendorEmail, orderDetails, orderId) => {
     const { vendorEmailTemplate } = formatOrderDetails(orderDetails, orderId);
 
     const mail = {
-      from: process.env.EMAIL_USER,
+      from: {
+        name: 'Foodles Vendor Orders',
+        address: process.env.EMAIL_USER
+      },
       to: vendorEmail,
-      subject: "New Order Received - Foodles",
-      html: vendorEmailTemplate
+      subject: `New Order: #${orderId} - Action Required`,
+      html: vendorEmailTemplate,
+      headers: {
+        'X-Entity-Ref-ID': `vendor-order-${orderId}`,
+        'X-Priority': '1',
+        'Precedence': 'high',
+        'X-MSMail-Priority': 'High',
+        'Importance': 'high',
+        // Prevent threading for vendor emails
+        'Message-ID': `<vendor-order-${orderId}-${Date.now()}@foodles.shop>`,
+        'X-GM-THRID': `vendor-order-${orderId}`,
+        'References': '',
+        // Add these headers to prevent quoted text hiding
+        'Content-Type': 'text/html; charset=utf-8',
+        'X-Auto-Response-Suppress': 'All',
+        'Auto-Submitted': 'auto-generated'
+      },
+      // Add these options to prevent quoted text hiding
+      textEncoding: 'base64',
+      alternative: true,
+      messageId: `vendor-order-${orderId}-${Date.now()}@foodles.shop`,
+      normalizeHeaderKey: (key) => key // Preserve header case
     };
 
     contactEmail.sendMail(mail, (error, info) => {
@@ -618,27 +764,31 @@ const restaurantStatusCache = {
   statuses: {}
 };
 
+// Update getRestaurantStatus function
 const getRestaurantStatus = (restaurantId) => {
   const now = new Date();
   const statusKey = `RESTAURANT_${restaurantId}_STATUS`;
   const status = process.env[statusKey];
   
-  // Add detailed logging
-  console.log(`Checking status for restaurant ${restaurantId}:`, {
+  console.log(`Restaurant ${restaurantId} status check:`, {
     statusKey,
-    status: status || 'not set',
-    timestamp: now.toISOString(),
-    allStatus: Object.keys(process.env)
-      .filter(key => key.startsWith('RESTAURANT_'))
-      .reduce((acc, key) => ({ ...acc, [key]: process.env[key] }), {})
+    rawStatus: status,
+    timestamp: now.toISOString()
   });
 
+  // Convert status to boolean
+  const isOpen = status === '1';
+
   return {
-    isOpen: status === '1',
-    message: status === '1' ? 'Open' : 'Temporarily Closed',
+    isOpen: isOpen,
+    message: isOpen ? 'Open' : 'Temporarily Closed',
     lastChecked: now.toISOString(),
     restaurantId,
-    debug: { rawStatus: status }
+    debug: { 
+      rawStatus: status,
+      statusKey,
+      checkTime: now.toISOString()
+    }
   };
 };
 
@@ -723,6 +873,7 @@ const statusMonitor = {
     this.checkInterval = setInterval(() => {
       const changes = this.checkForChanges();
       if (changes.length > 0) {
+        console.log('Status changes detected:', changes);
         this.notifyWatchers(changes);
       }
     }, 1000); // Check every second
@@ -751,9 +902,13 @@ const statusMonitor = {
   },
 
   notifyWatchers(changes) {
-    const message = JSON.stringify({ type: 'STATUS_UPDATE', changes });
+    const message = JSON.stringify({ 
+      type: 'STATUS_UPDATE', 
+      changes,
+      timestamp: new Date().toISOString()
+    });
     this.watchers.forEach(client => {
-      if (client.readyState === 1) { // 1 = OPEN
+      if (client.readyState === 1) {
         client.send(message);
       }
     });
@@ -787,6 +942,20 @@ wss.on('connection', (ws) => {
   ws.on('close', () => {
     statusMonitor.watchers.delete(ws);
   });
+});
+
+// Add a new endpoint to handle feedback submissions
+app.post('/api/submit-feedback', async (req, res) => {
+  const { orderId, feedback } = req.body;
+  console.log('📝 Feedback received:', { orderId, feedback });
+  
+  try {
+    // You can add logic here to store feedback in a database
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Feedback submission failed:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
 });
 
 // Start the server
