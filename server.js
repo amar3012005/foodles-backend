@@ -26,7 +26,7 @@ app.use(cors({
     'https://foodles.shop',
     'https://www.foodles.shop',
     'https://precious-cobbler-d60f77.netlify.app', // If using Netlify for frontend
-    'http://localhost:3000'                 // Keep local development
+    ''                 // Keep local development
   ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
