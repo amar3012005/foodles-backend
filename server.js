@@ -10,13 +10,24 @@ const twilio = require('twilio');
 const WebSocket = require('ws');
 const fs = require('fs');
 
-// Watch .env file for changes
-fs.watch(path.join(__dirname, '.env'), (eventType, filename) => {
-  if (eventType === 'change') {
-    console.log('🔄 .env file changed, reloading configuration...');
-    require('dotenv').config({ override: true });
+// Only watch .env file in development mode
+if (process.env.NODE_ENV === 'development') {
+  const envPath = path.join(__dirname, '.env');
+  // Check if .env file exists before watching
+  if (fs.existsSync(envPath)) {
+    fs.watch(envPath, (eventType, filename) => {
+      if (eventType === 'change') {
+        console.log('🔄 .env file changed, reloading configuration...');
+        require('dotenv').config({ override: true });
+      }
+    });
+    console.log('📝 Watching .env file for changes in development mode');
+  } else {
+    console.log('⚠️ No .env file found in development mode');
   }
-});
+} else {
+  console.log('💡 Production mode - not watching .env file');
+}
 
 const app = express();
 const PORT = process.env.PORT || 5000;
