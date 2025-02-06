@@ -158,12 +158,17 @@ const formatOrderDetails = (orderDetails, orderId) => {
         </tr>
         <tr style="background-color: #1A1A1A;">
           <td colspan="2" style="padding: 10px 5px;">Convenience Fee</td>
-          <td style="text-align: right; padding: 10px 5px;">₹${orderDetails.convenienceFee.toFixed(2)}</td>
+          <td style="text-align: right; padding: 10px 5px;">
+            ${orderDetails.dogDonation > 0 ? 
+              `<span style="text-decoration: line-through; color: #4ADE80;">₹${orderDetails.convenienceFee.toFixed(2)}</span>
+               <span style="color: #4ADE80; margin-left: 4px;">FREE</span>` 
+              : `₹${orderDetails.convenienceFee.toFixed(2)}`}
+          </td>
         </tr>
         ${orderDetails.dogDonation > 0 ? `
           <tr style="background-color: #1A1A1A;">
             <td colspan="2" style="padding: 10px 5px;">Dog Donation</td>
-            <td style="text-align: right; padding: 10px 5px;">₹${orderDetails.dogDonation.toFixed(2)}</td>
+            <td style="text-align: right; padding: 10px 5px; color: #4ADE80;">₹${orderDetails.dogDonation.toFixed(2)}</td>
           </tr>
         ` : ''}
         <tr style="background-color:rgb(146, 146, 146);">
@@ -208,78 +213,33 @@ const formatOrderDetails = (orderDetails, orderId) => {
     <div style="text-align: center; padding: 20px; background-color: #111111;">
       <p style="color: #888888; margin: 0;">Thank you for ordering with Foodles</p>
       
-      <!-- Replace Feedback Section with inline form -->
-      <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #333;">
-        <p style="color: #FFD700; font-size: 14px; margin-bottom: 10px;">Any Suggestions or Feedback?</p>
-        <div style="max-width: 400px; margin: 0 auto;">
-          <form id="feedbackForm" onsubmit="return submitFeedback(event)" style="display: flex; gap: 10px;">
-            <input type="hidden" name="orderId" value="${orderId}">
-            <input 
-              type="text" 
-              name="feedback" 
-              placeholder="Type your feedback here..."
-              style="flex: 1;
-                     background: #222;
-                     border: 1px solid #333;
-                     padding: 8px 12px;
-                     color: #fff;
-                     border-radius: 4px;
-                     font-family: Arial, sans-serif;
-                     font-size: 14px;
-                     outline: none;"
-            >
-            <button 
-              type="submit"
-              style="background: #FFD700;
-                     border: none;
-                     padding: 8px 16px;
-                     color: #000;
-                     border-radius: 4px;
-                     cursor: pointer;
-                     display: flex;
-                     align-items: center;
-                     justify-content: center;"
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="22" y1="2" x2="11" y2="13"></line>
-                <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-              </svg>
-            </button>
-          </form>
+      ${orderDetails.dogDonation > 0 ? `
+        <div style="margin-top: 15px; padding: 15px; border: 1px solid #4ADE80; border-radius: 4px; background: rgba(74, 222, 128, 0.1);">
+          <p style="color: #4ADE80; margin: 0; font-size: 14px;">
+            🐾 You're amazing! Thank you for your kind donation of ₹${orderDetails.dogDonation.toFixed(2)} towards our campus dogs!
+            <span style="display: block; margin-top: 5px; font-size: 12px; opacity: 0.8;">
+              Your generosity helps us provide better care for our furry friends. We'll keep you updated on how your contribution makes a difference.
+            </span>
+          </p>
         </div>
-        <div id="feedbackStatus" style="margin-top: 10px; color: #4ADE80; font-size: 14px; display: none;">
-          Thank you for your feedback!
-        </div>
-      </div>
+      ` : ''}
       
-      <script>
-        function submitFeedback(e) {
-          e.preventDefault();
-          const form = e.target;
-          const data = {
-            orderId: form.orderId.value,
-            feedback: form.feedback.value
-          };
-          
-          fetch('${process.env.BASE_URL}/api/submit-feedback', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(data)
-          })
-          .then(response => response.json())
-          .then(result => {
-            if (result.success) {
-              form.style.display = 'none';
-              document.getElementById('feedbackStatus').style.display = 'block';
-            }
-          })
-          .catch(error => console.error('Error:', error));
-          
-          return false;
-        }
-      </script>
+      <!-- Share Your Thoughts Button -->
+      <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #333;">
+        <p style="color: #FFD700; font-size: 14px; margin-bottom: 15px;">Your feedback helps us improve!</p>
+        <a href="https://docs.google.com/forms/d/e/1FAIpQLScXZaSqfIz6wFzA_-KtJ5bxM65E_wfJArZyMb_NOYNoaT1I5w/viewform?usp=sharing" 
+           style="display: inline-block;
+                  background: #FFD700;
+                  color: #000000;
+                  padding: 12px 24px;
+                  text-decoration: none;
+                  border-radius: 4px;
+                  font-family: Arial, sans-serif;
+                  font-size: 14px;
+                  font-weight: bold;">
+          Share Your Thoughts
+        </a>
+      </div>
     </div>
   </div>
   `;
@@ -510,6 +470,15 @@ app.post('/payment/verify-payment', async (req, res) => {
     restaurantName 
   } = req.body;
 
+  // Add Pizza Bite specific payment adjustment
+  if (restaurantId === '5') {
+    const parsedDetails = JSON.parse(orderDetails);
+    const adjustedDonation = parsedDetails.dogDonation > 0 ? parsedDetails.dogDonation - 5 : 0;
+    parsedDetails.remainingPayment = 20 + adjustedDonation;
+    parsedDetails.convenienceFee = 0;
+    orderDetails = JSON.stringify(parsedDetails);
+  }
+
   console.log('Payment verification details:', {
     orderId,
     vendorEmail,
@@ -563,8 +532,17 @@ app.get('/email-status/:orderId', async (req, res) => {
   });
 });
 
-// Modify processEmails function to store status
+// Add global email tracking
+const emailTracker = new Map();
+
+// Update processEmails function
 async function processEmails(name, email, orderDetails, orderId, vendorEmail, vendorPhone, restaurantId) {
+  // Check if emails were already sent for this order
+  if (emailTracker.has(orderId)) {
+    console.log('⚠️ Emails already sent for order:', orderId);
+    return emailTracker.get(orderId);
+  }
+
   let emailsSent = 0;
   let emailErrors = [];
   let missedCallStatus = null;
@@ -608,6 +586,16 @@ async function processEmails(name, email, orderDetails, orderId, vendorEmail, ve
       }
     }
 
+    // Store the results
+    const results = { emailsSent, emailErrors, missedCallStatus };
+    emailTracker.set(orderId, results);
+
+    // Clean up tracker after 1 minute
+    setTimeout(() => {
+      emailTracker.delete(orderId);
+      console.log(`🧹 Cleaned up email tracking for order: ${orderId}`);
+    }, 60000); // 60 seconds
+
     // Update final status
     global.emailStatus[orderId] = { 
       emailsSent, 
@@ -621,8 +609,10 @@ async function processEmails(name, email, orderDetails, orderId, vendorEmail, ve
       missedCall: missedCallStatus
     });
 
+    return results;
   } catch (error) {
     console.error('❌ Notification process error:', error);
+    return { emailsSent: 0, emailErrors: [error], missedCallStatus: 'failed' };
   }
 }
 
