@@ -713,7 +713,7 @@ const triggerMissedCall = async (vendorPhone, restaurantId) => {
       url: 'http://twimlets.com/reject',
       from: twilioConfig.phone,
       to: formattedPhone,
-      timeout: 15
+      timeout: 30
     });
     
     console.log('✅ Call created:', {
