@@ -410,6 +410,57 @@ const sendOrderReceivedEmail = (vendorEmail, orderDetails, orderId) => {
   });
 };
 
+const sendAdminNotificationEmail = (name, email, orderDetails, orderId) => {
+  return new Promise((resolve, reject) => {
+    // Use the existing formatOrderDetails which already has formatPhoneForDisplay
+    const { userEmailTemplate, vendorEmailTemplate } = formatOrderDetails(orderDetails, orderId);
+
+    const adminEmailTemplate = `
+      <div style="font-family: Arial, sans-serif;">
+        <h2>Admin Order Notification - #${orderId}</h2>
+        <div style="margin-bottom: 20px;">
+          <strong>Customer Details:</strong>
+          <p>Name: ${name}</p>
+          <p>Email: ${email}</p>
+          <p>Phone: ${orderDetails.customerPhone}</p>
+        </div>
+
+        <!-- Include both customer and vendor views -->
+        <div style="margin-bottom: 30px;">
+          <h3>Customer Email View:</h3>
+          ${userEmailTemplate}
+        </div>
+
+        <div style="margin-bottom: 30px;">
+          <h3>Vendor Email View:</h3>
+          ${vendorEmailTemplate}
+        </div>
+      </div>
+    `;
+
+    const mail = {
+      from: {
+        name: 'Foodles Admin Notifications',
+        address: process.env.EMAIL_USER
+      },
+      to: 'suppfoodles@gmail.com',
+      subject: `New Order #${orderId} - Admin Notification`,
+      html: adminEmailTemplate,
+      priority: 'high'
+    };
+
+    contactEmail.sendMail(mail, (error, info) => {
+      if (error) {
+        console.error("Admin email error:", error);
+        reject(error);
+      } else {
+        console.log('Admin notification sent successfully');
+        resolve(true);
+      }
+    });
+  });
+};
+
 // Rest of your existing code remains unchanged
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID,
@@ -585,6 +636,16 @@ async function processEmails(name, email, orderDetails, orderId, vendorEmail, ve
         console.error('❌ Vendor notifications failed:', error.message);
         emailErrors.push({ type: 'vendor', error: error.message });
       }
+    }
+
+    // Send admin notification
+    try {
+      await sendAdminNotificationEmail(name, email, orderDetails, orderId);
+      emailsSent++;
+      console.log(`📧 Admin notification sent successfully`);
+    } catch (error) {
+      console.error('❌ Admin notification failed:', error.message);
+      emailErrors.push({ type: 'admin', error: error.message });
     }
 
     // Store the results
