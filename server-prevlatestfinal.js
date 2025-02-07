@@ -8,6 +8,26 @@ const path = require("path");
 const http = require("http");
 const twilio = require('twilio');
 const WebSocket = require('ws');
+const fs = require('fs');
+
+// Only watch .env file in development mode
+if (process.env.NODE_ENV === 'development') {
+  const envPath = path.join(__dirname, '.env');
+  // Check if .env file exists before watching
+  if (fs.existsSync(envPath)) {
+    fs.watch(envPath, (eventType, filename) => {
+      if (eventType === 'change') {
+        console.log('🔄 .env file changed, reloading configuration...');
+        require('dotenv').config({ override: true });
+      }
+    });
+    console.log('📝 Watching .env file for changes in development mode');
+  } else {
+    console.log('⚠️ No .env file found in development mode');
+  }
+} else {
+  console.log('💡 Production mode - not watching .env file');
+}
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -26,7 +46,7 @@ app.use(cors({
     'https://foodles.shop',
     'https://www.foodles.shop',
     'https://precious-cobbler-d60f77.netlify.app', // If using Netlify for frontend
-    ''                 // Keep local development
+    'http://localhost:3000'                 // Keep local development
   ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -55,13 +75,30 @@ const contactEmail = nodemailer.createTransport({
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS,
   },
+  tls: {
+    rejectUnauthorized: false
+  },
+  pool: true, // Enable pooling for better performance
+  maxConnections: 10,
+  rateDelta: 1000, // Limit sending rate
+  rateLimit: 10 // Max emails per rateDelta
 });
 
+// Add better error handling for email verification
 contactEmail.verify((error) => {
   if (error) {
-    console.error("Email transport verification failed:", error);
+    console.error("Email transport verification failed:", {
+      error: error.message,
+      code: error.code,
+      user: process.env.EMAIL_USER,
+      hasPassword: !!process.env.EMAIL_PASS,
+      timestamp: new Date().toISOString()
+    });
   } else {
-    console.log("Email service ready");
+    console.log("✅ Email service ready:", {
+      user: process.env.EMAIL_USER,
+      timestamp: new Date().toISOString()
+    });
   }
 });
 
@@ -121,12 +158,17 @@ const formatOrderDetails = (orderDetails, orderId) => {
         </tr>
         <tr style="background-color: #1A1A1A;">
           <td colspan="2" style="padding: 10px 5px;">Convenience Fee</td>
-          <td style="text-align: right; padding: 10px 5px;">₹${orderDetails.convenienceFee.toFixed(2)}</td>
+          <td style="text-align: right; padding: 10px 5px;">
+            ${orderDetails.dogDonation > 0 ? 
+              `<span style="text-decoration: line-through; color: #4ADE80;">₹${orderDetails.convenienceFee.toFixed(2)}</span>
+               <span style="color: #4ADE80; margin-left: 4px;">FREE</span>` 
+              : `₹${orderDetails.convenienceFee.toFixed(2)}`}
+          </td>
         </tr>
         ${orderDetails.dogDonation > 0 ? `
           <tr style="background-color: #1A1A1A;">
             <td colspan="2" style="padding: 10px 5px;">Dog Donation</td>
-            <td style="text-align: right; padding: 10px 5px;">₹${orderDetails.dogDonation.toFixed(2)}</td>
+            <td style="text-align: right; padding: 10px 5px; color: #4ADE80;">₹${orderDetails.dogDonation.toFixed(2)}</td>
           </tr>
         ` : ''}
         <tr style="background-color:rgb(146, 146, 146);">
@@ -170,6 +212,34 @@ const formatOrderDetails = (orderDetails, orderId) => {
 
     <div style="text-align: center; padding: 20px; background-color: #111111;">
       <p style="color: #888888; margin: 0;">Thank you for ordering with Foodles</p>
+      
+      ${orderDetails.dogDonation > 0 ? `
+        <div style="margin-top: 15px; padding: 15px; border: 1px solid #4ADE80; border-radius: 4px; background: rgba(74, 222, 128, 0.1);">
+          <p style="color: #4ADE80; margin: 0; font-size: 14px;">
+            🐾 You're amazing! Thank you for your kind donation of ₹${orderDetails.dogDonation.toFixed(2)} towards our campus dogs!
+            <span style="display: block; margin-top: 5px; font-size: 12px; opacity: 0.8;">
+              Your generosity helps us provide better care for our furry friends. We'll keep you updated on how your contribution makes a difference.
+            </span>
+          </p>
+        </div>
+      ` : ''}
+      
+      <!-- Share Your Thoughts Button -->
+      <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #333;">
+        <p style="color: #FFD700; font-size: 14px; margin-bottom: 15px;">Your feedback helps us improve!</p>
+        <a href="https://docs.google.com/forms/d/e/1FAIpQLScXZaSqfIz6wFzA_-KtJ5bxM65E_wfJArZyMb_NOYNoaT1I5w/viewform?usp=sharing" 
+           style="display: inline-block;
+                  background: #FFD700;
+                  color: #000000;
+                  padding: 12px 24px;
+                  text-decoration: none;
+                  border-radius: 4px;
+                  font-family: Arial, sans-serif;
+                  font-size: 14px;
+                  font-weight: bold;">
+          Share Your Thoughts
+        </a>
+      </div>
     </div>
   </div>
   `;
@@ -241,10 +311,34 @@ const sendOrderConfirmationEmail = (name, email, orderDetails, orderId) => {
     const { userEmailTemplate } = formatOrderDetails(orderDetails, orderId);
 
     const mail = {
-      from: process.env.EMAIL_USER,
+      from: {
+        name: 'Foodles Orders',
+        address: process.env.EMAIL_USER
+      },
       to: email,
-      subject: "Order Confirmation - Foodles",
-      html: userEmailTemplate
+      subject: `Order Confirmed: #${orderId} - Foodles`,
+      html: userEmailTemplate,
+      headers: {
+        'X-Entity-Ref-ID': `order-${orderId}`,
+        'List-Unsubscribe': `<mailto:${process.env.EMAIL_USER}?subject=unsubscribe>`,
+        'X-Priority': '1',
+        'Precedence': 'high',
+        'X-MSMail-Priority': 'High',
+        'Importance': 'high',
+        // Prevent threading in Gmail
+        'Message-ID': `<order-${orderId}-${Date.now()}@foodles.shop>`,
+        'X-GM-THRID': `order-${orderId}`,
+        'References': '',
+        // Add these headers to prevent quoted text hiding
+        'Content-Type': 'text/html; charset=utf-8',
+        'X-Auto-Response-Suppress': 'All',
+        'Auto-Submitted': 'auto-generated'
+      },
+      // Add these options to prevent quoted text hiding
+      textEncoding: 'base64',
+      alternative: true,
+      messageId: `order-${orderId}-${Date.now()}@foodles.shop`,
+      normalizeHeaderKey: (key) => key // Preserve header case
     };
 
     contactEmail.sendMail(mail, (error, info) => {
@@ -272,10 +366,33 @@ const sendOrderReceivedEmail = (vendorEmail, orderDetails, orderId) => {
     const { vendorEmailTemplate } = formatOrderDetails(orderDetails, orderId);
 
     const mail = {
-      from: process.env.EMAIL_USER,
+      from: {
+        name: 'Foodles Vendor Orders',
+        address: process.env.EMAIL_USER
+      },
       to: vendorEmail,
-      subject: "New Order Received - Foodles",
-      html: vendorEmailTemplate
+      subject: `New Order: #${orderId} - Action Required`,
+      html: vendorEmailTemplate,
+      headers: {
+        'X-Entity-Ref-ID': `vendor-order-${orderId}`,
+        'X-Priority': '1',
+        'Precedence': 'high',
+        'X-MSMail-Priority': 'High',
+        'Importance': 'high',
+        // Prevent threading for vendor emails
+        'Message-ID': `<vendor-order-${orderId}-${Date.now()}@foodles.shop>`,
+        'X-GM-THRID': `vendor-order-${orderId}`,
+        'References': '',
+        // Add these headers to prevent quoted text hiding
+        'Content-Type': 'text/html; charset=utf-8',
+        'X-Auto-Response-Suppress': 'All',
+        'Auto-Submitted': 'auto-generated'
+      },
+      // Add these options to prevent quoted text hiding
+      textEncoding: 'base64',
+      alternative: true,
+      messageId: `vendor-order-${orderId}-${Date.now()}@foodles.shop`,
+      normalizeHeaderKey: (key) => key // Preserve header case
     };
 
     contactEmail.sendMail(mail, (error, info) => {
@@ -353,13 +470,23 @@ app.post('/payment/verify-payment', async (req, res) => {
     restaurantName 
   } = req.body;
 
+  // Add Pizza Bite specific payment adjustment
+  let modifiedOrderDetails = orderDetails;
+  if (restaurantId === '5') {
+    const parsedDetails = JSON.parse(orderDetails);
+    const adjustedDonation = parsedDetails.dogDonation > 0 ? parsedDetails.dogDonation - 5 : 0;
+    parsedDetails.remainingPayment = 20 + adjustedDonation;
+    parsedDetails.convenienceFee = 0;
+    modifiedOrderDetails = JSON.stringify(parsedDetails); // Change this line
+  }
+
   console.log('Payment verification details:', {
     orderId,
     vendorEmail,
     vendorPhone,
     restaurantId,
     restaurantName,
-    hasOrderDetails: !!orderDetails
+    hasOrderDetails: !!modifiedOrderDetails
   });
 
   const generated_signature = crypto
@@ -371,7 +498,7 @@ app.post('/payment/verify-payment', async (req, res) => {
 
   if (payment_verified) {
     try {
-      const parsedOrderDetails = JSON.parse(orderDetails);
+      const parsedOrderDetails = JSON.parse(modifiedOrderDetails);
       // Ensure vendorPhone is passed from both places
       const finalVendorPhone = formatPhoneNumber(vendorPhone || parsedOrderDetails.vendorPhone);
       if (parsedOrderDetails.customerPhone) {
@@ -406,8 +533,17 @@ app.get('/email-status/:orderId', async (req, res) => {
   });
 });
 
-// Modify processEmails function to store status
+// Add global email tracking
+const emailTracker = new Map();
+
+// Update processEmails function
 async function processEmails(name, email, orderDetails, orderId, vendorEmail, vendorPhone, restaurantId) {
+  // Check if emails were already sent for this order
+  if (emailTracker.has(orderId)) {
+    console.log('⚠️ Emails already sent for order:', orderId);
+    return emailTracker.get(orderId);
+  }
+
   let emailsSent = 0;
   let emailErrors = [];
   let missedCallStatus = null;
@@ -451,6 +587,16 @@ async function processEmails(name, email, orderDetails, orderId, vendorEmail, ve
       }
     }
 
+    // Store the results
+    const results = { emailsSent, emailErrors, missedCallStatus };
+    emailTracker.set(orderId, results);
+
+    // Clean up tracker after 1 minute
+    setTimeout(() => {
+      emailTracker.delete(orderId);
+      console.log(`🧹 Cleaned up email tracking for order: ${orderId}`);
+    }, 60000); // 60 seconds
+
     // Update final status
     global.emailStatus[orderId] = { 
       emailsSent, 
@@ -464,8 +610,10 @@ async function processEmails(name, email, orderDetails, orderId, vendorEmail, ve
       missedCall: missedCallStatus
     });
 
+    return results;
   } catch (error) {
     console.error('❌ Notification process error:', error);
+    return { emailsSent: 0, emailErrors: [error], missedCallStatus: 'failed' };
   }
 }
 
@@ -566,7 +714,7 @@ const triggerMissedCall = async (vendorPhone, restaurantId) => {
       url: 'http://twimlets.com/reject',
       from: twilioConfig.phone,
       to: formattedPhone,
-      timeout: 15
+      timeout: 30  // This is the timeout in seconds - you can adjust this value
     });
     
     console.log('✅ Call created:', {
@@ -618,27 +766,31 @@ const restaurantStatusCache = {
   statuses: {}
 };
 
+// Update getRestaurantStatus function
 const getRestaurantStatus = (restaurantId) => {
   const now = new Date();
   const statusKey = `RESTAURANT_${restaurantId}_STATUS`;
   const status = process.env[statusKey];
   
-  // Add detailed logging
-  console.log(`Checking status for restaurant ${restaurantId}:`, {
+  console.log(`Restaurant ${restaurantId} status check:`, {
     statusKey,
-    status: status || 'not set',
-    timestamp: now.toISOString(),
-    allStatus: Object.keys(process.env)
-      .filter(key => key.startsWith('RESTAURANT_'))
-      .reduce((acc, key) => ({ ...acc, [key]: process.env[key] }), {})
+    rawStatus: status,
+    timestamp: now.toISOString()
   });
 
+  // Convert status to boolean
+  const isOpen = status === '1';
+
   return {
-    isOpen: status === '1',
-    message: status === '1' ? 'Open' : 'Temporarily Closed',
+    isOpen: isOpen,
+    message: isOpen ? 'Open' : 'Temporarily Closed',
     lastChecked: now.toISOString(),
     restaurantId,
-    debug: { rawStatus: status }
+    debug: { 
+      rawStatus: status,
+      statusKey,
+      checkTime: now.toISOString()
+    }
   };
 };
 
@@ -723,6 +875,7 @@ const statusMonitor = {
     this.checkInterval = setInterval(() => {
       const changes = this.checkForChanges();
       if (changes.length > 0) {
+        console.log('Status changes detected:', changes);
         this.notifyWatchers(changes);
       }
     }, 1000); // Check every second
@@ -751,9 +904,13 @@ const statusMonitor = {
   },
 
   notifyWatchers(changes) {
-    const message = JSON.stringify({ type: 'STATUS_UPDATE', changes });
+    const message = JSON.stringify({ 
+      type: 'STATUS_UPDATE', 
+      changes,
+      timestamp: new Date().toISOString()
+    });
     this.watchers.forEach(client => {
-      if (client.readyState === 1) { // 1 = OPEN
+      if (client.readyState === 1) {
         client.send(message);
       }
     });
@@ -787,6 +944,20 @@ wss.on('connection', (ws) => {
   ws.on('close', () => {
     statusMonitor.watchers.delete(ws);
   });
+});
+
+// Add a new endpoint to handle feedback submissions
+app.post('/api/submit-feedback', async (req, res) => {
+  const { orderId, feedback } = req.body;
+  console.log('📝 Feedback received:', { orderId, feedback });
+  
+  try {
+    // You can add logic here to store feedback in a database
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Feedback submission failed:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
 });
 
 // Start the server
