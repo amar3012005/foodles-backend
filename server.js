@@ -79,9 +79,9 @@ const contactEmail = nodemailer.createTransport({
     rejectUnauthorized: false
   },
   pool: true, // Enable pooling for better performance
-  maxConnections: 5,
+  maxConnections: 10,
   rateDelta: 1000, // Limit sending rate
-  rateLimit: 5 // Max emails per rateDelta
+  rateLimit: 10 // Max emails per rateDelta
 });
 
 // Add better error handling for email verification
@@ -713,7 +713,7 @@ const triggerMissedCall = async (vendorPhone, restaurantId) => {
       url: 'http://twimlets.com/reject',
       from: twilioConfig.phone,
       to: formattedPhone,
-      timeout: 30
+      timeout: 30  // This is the timeout in seconds - you can adjust this value
     });
     
     console.log('✅ Call created:', {
