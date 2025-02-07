@@ -471,12 +471,13 @@ app.post('/payment/verify-payment', async (req, res) => {
   } = req.body;
 
   // Add Pizza Bite specific payment adjustment
+  let modifiedOrderDetails = orderDetails;
   if (restaurantId === '5') {
     const parsedDetails = JSON.parse(orderDetails);
     const adjustedDonation = parsedDetails.dogDonation > 0 ? parsedDetails.dogDonation - 5 : 0;
     parsedDetails.remainingPayment = 20 + adjustedDonation;
     parsedDetails.convenienceFee = 0;
-    orderDetails = JSON.stringify(parsedDetails);
+    modifiedOrderDetails = JSON.stringify(parsedDetails); // Change this line
   }
 
   console.log('Payment verification details:', {
@@ -485,7 +486,7 @@ app.post('/payment/verify-payment', async (req, res) => {
     vendorPhone,
     restaurantId,
     restaurantName,
-    hasOrderDetails: !!orderDetails
+    hasOrderDetails: !!modifiedOrderDetails
   });
 
   const generated_signature = crypto
@@ -497,7 +498,7 @@ app.post('/payment/verify-payment', async (req, res) => {
 
   if (payment_verified) {
     try {
-      const parsedOrderDetails = JSON.parse(orderDetails);
+      const parsedOrderDetails = JSON.parse(modifiedOrderDetails);
       // Ensure vendorPhone is passed from both places
       const finalVendorPhone = formatPhoneNumber(vendorPhone || parsedOrderDetails.vendorPhone);
       if (parsedOrderDetails.customerPhone) {
