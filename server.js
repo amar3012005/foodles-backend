@@ -154,7 +154,7 @@ const formatOrderDetails = (orderDetails, orderId) => {
         </tr>
         <tr style="background-color: #1A1A1A;">
           <td colspan="2" style="padding: 10px 5px;">Delivery Fee</td>
-          <td style="text-align: right; padding: 10px 5px;">₹${orderDetails.deliveryFee.toFixed(2)}</td>
+          <td style="text-align: right; padding: 10px 5px;">₹ 0 (Saturday Night Offer )</td>
         </tr>
         <tr style="background-color: #1A1A1A;">
           <td colspan="2" style="padding: 10px 5px;">Convenience Fee</td>
