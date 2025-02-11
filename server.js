@@ -154,17 +154,15 @@ const formatOrderDetails = (orderDetails, orderId) => {
         </tr>
         <tr style="background-color: #1A1A1A;">
           <td colspan="2" style="padding: 10px 5px;">Delivery Fee</td>
-          <td style="text-align: right; padding: 10px 5px;">₹${orderDetails.deliveryFee.toFixed(2)}</td>
+          <td style="text-align: right; padding: 10px 5px; color: #4ADE80;"> Free (Saturday Night Offer)</td>
         </tr>
-
-        
         <tr style="background-color: #1A1A1A;">
           <td colspan="2" style="padding: 10px 5px;">Convenience Fee</td>
           <td style="text-align: right; padding: 10px 5px;">
             ${orderDetails.dogDonation > 0 ? 
-              `<span style="text-decoration: line-through; color: #4ADE80;">₹${orderDetails.convenienceFee.toFixed(2)}</span>
+              `<span style="text-decoration: line-through; color: #4ADE80;">₹5.00</span>
                <span style="color: #4ADE80; margin-left: 4px;">FREE</span>` 
-              : `₹${orderDetails.convenienceFee.toFixed(2)}`}
+              : `₹${orderDetails.convenienceFee ? orderDetails.convenienceFee.toFixed(2) : '5.00'}`}
           </td>
         </tr>
         ${orderDetails.dogDonation > 0 ? `
