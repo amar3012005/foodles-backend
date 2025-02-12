@@ -526,7 +526,7 @@ app.post('/payment/verify-payment', async (req, res) => {
   if (restaurantId === '5') {
     const parsedDetails = JSON.parse(orderDetails);
     const adjustedDonation = parsedDetails.dogDonation > 0 ? parsedDetails.dogDonation - 5 : 0;
-    parsedDetails.remainingPayment = 25 + adjustedDonation;
+    parsedDetails.remainingPayment = 20 + adjustedDonation;
     parsedDetails.convenienceFee = 0;
     modifiedOrderDetails = JSON.stringify(parsedDetails); // Change this line
   }
